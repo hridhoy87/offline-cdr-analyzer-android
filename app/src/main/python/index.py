@@ -236,7 +236,12 @@ def process_cdr_data(file_paths, intended_location, output_dir):
         imei_col_idx = final_cols.index(col_J) + 1
         common_col_idx = final_cols.index("Common?") + 1 if "Common?" in final_cols else -1
 
-        output_excel_path = os.path.join(output_dir, "Combined_Styled_CDR_Report.xlsx")
+        # Dynamic Filename Generation: <AParty>-CDR-Processed-<Date,Time>
+        primary_a_party = unique_a_parties[0] if unique_a_parties else "Unknown"
+        timestamp_str = time.strftime("%Y%m%d_%H%M%S")
+        safe_a_party = "".join(c for c in primary_a_party if c.isalnum())
+        output_filename = f"{safe_a_party}-CDR-Processed-{timestamp_str}.xlsx"
+        output_excel_path = os.path.join(output_dir, output_filename)
 
         with pd.ExcelWriter(output_excel_path, engine="openpyxl") as writer:
             vertical_summary_data = {
