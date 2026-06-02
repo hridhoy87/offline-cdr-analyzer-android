@@ -20,8 +20,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // CHAQUOPY CONFIGURATION: Mandatory Native ABI targeting
+        // Restricted to arm64-v8a to significantly reduce APK size for mobile devices
         ndk {
-            abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
+            abiFilters.add("arm64-v8a")
         }
     }
 
@@ -40,7 +41,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
