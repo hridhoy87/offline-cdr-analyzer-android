@@ -6,4 +6,5 @@
     <attr name="cardBackgroundColorCustom" format="color" />
     <attr name="hintTextColorCustom" format="color" />
     <attr name="inputBackgroundColor" format="color" />
+    <attr name="loaderShadowColor" format="color" />
 </resources>

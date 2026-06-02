@@ -8,6 +8,7 @@
         <item name="cardBackgroundColorCustom">@color/card_bg_light</item>
         <item name="hintTextColorCustom">@color/hint_light</item>
         <item name="inputBackgroundColor">@color/input_bg_light</item>
+        <item name="loaderShadowColor">@color/loader_shadow_light</item>
     </style>
 
     <style name="Theme.OfflineCDRAnalyzer" parent="Base.Theme.OfflineCDRAnalyzer" />

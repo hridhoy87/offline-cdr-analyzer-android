@@ -8,5 +8,6 @@
         <item name="cardBackgroundColorCustom">@color/card_bg_dark</item>
         <item name="hintTextColorCustom">@color/hint_dark</item>
         <item name="inputBackgroundColor">@color/input_bg_dark</item>
+        <item name="loaderShadowColor">@color/loader_shadow_dark</item>
     </style>
 </resources>

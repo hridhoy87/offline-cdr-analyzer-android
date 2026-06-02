@@ -12,9 +12,12 @@ import android.text.Html;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.PopupMenu;
 import android.widget.TableLayout;
@@ -42,7 +45,9 @@ public class MainActivity extends AppCompatActivity {
 
     private EditText locationInput;
     private TextView statusText;
-    private ProgressBar progressBar;
+    private View loadingContainer;
+    private ImageView loadingLogo;
+    private View rippleEffect;
     private SwipeRefreshLayout swipeRefreshLayout;
     private View resultsContainer;
     private TextView summaryAParties, summaryTopThree, summaryNightStays, summaryCommonBParties;
@@ -67,7 +72,9 @@ public class MainActivity extends AppCompatActivity {
 
         locationInput = findViewById(R.id.locationInput);
         statusText = findViewById(R.id.statusText);
-        progressBar = findViewById(R.id.progressBar);
+        loadingContainer = findViewById(R.id.loadingContainer);
+        loadingLogo = findViewById(R.id.loadingLogo);
+        rippleEffect = findViewById(R.id.rippleEffect);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
         resultsContainer = findViewById(R.id.resultsContainer);
 
@@ -204,8 +211,25 @@ public class MainActivity extends AppCompatActivity {
 
     private void runPythonEngine() {
         statusText.setText("Processing calculation matrices...");
-        progressBar.setVisibility(View.VISIBLE);
+        loadingContainer.setVisibility(View.VISIBLE);
         resultsContainer.setVisibility(View.GONE);
+
+        // Start Complex Animation
+        Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
+        complexAnim.setAnimationListener(new Animation.AnimationListener() {
+            @Override public void onAnimationStart(Animation animation) {}
+            @Override public void onAnimationRepeat(Animation animation) {}
+            @Override
+            public void onAnimationEnd(Animation animation) {
+                // Repeat if still loading
+                if (loadingContainer.getVisibility() == View.VISIBLE) {
+                    loadingLogo.startAnimation(complexAnim);
+                    rippleEffect.startAnimation(complexAnim);
+                }
+            }
+        });
+        loadingLogo.startAnimation(complexAnim);
+        rippleEffect.startAnimation(complexAnim);
 
         new Thread(() -> {
             try {
@@ -222,7 +246,9 @@ public class MainActivity extends AppCompatActivity {
                 String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
 
                 runOnUiThread(() -> {
-                    progressBar.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    loadingContainer.setVisibility(View.GONE);
                     if ("success".equals(status)) {
                         populateResults(resultMap);
                     } else {
@@ -233,7 +259,9 @@ public class MainActivity extends AppCompatActivity {
 
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    progressBar.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    loadingContainer.setVisibility(View.GONE);
                     statusText.setText("Engine failure: " + e.getMessage());
                 });
             }
@@ -255,9 +283,10 @@ public class MainActivity extends AppCompatActivity {
 
             String rawTopTargets = metrics.get(py.getBuiltins().get("str").call("top_three")).toString();
             String rawCommonB = metrics.get(py.getBuiltins().get("str").call("common_b_parties")).toString();
+            String rawNightStays = metrics.get(py.getBuiltins().get("str").call("night_stays")).toString();
 
             summaryAParties.setText(Html.fromHtml("🎯 <b>A Parties:</b> " + metrics.get(py.getBuiltins().get("str").call("a_parties")), Html.FROM_HTML_MODE_COMPACT));
-            summaryTopThree.setText(Html.fromHtml("🔥 <b>Top Targets (Click to copy):</b><br>" + rawTopTargets, Html.FROM_HTML_MODE_COMPACT));
+            summaryTopThree.setText(Html.fromHtml("🔥 <b>Top Targets (Click to share):</b><br>" + rawTopTargets, Html.FROM_HTML_MODE_COMPACT));
             
             // Click to share logic for Top Targets
             summaryTopThree.setOnClickListener(v -> {
@@ -265,7 +294,20 @@ public class MainActivity extends AppCompatActivity {
                 shareText("Top Targets", copyText);
             });
 
-            summaryNightStays.setText(Html.fromHtml("🌙 <b>Night Stays:</b> " + metrics.get(py.getBuiltins().get("str").call("night_stays")), Html.FROM_HTML_MODE_COMPACT));
+            // Format Night Stays as a list
+            StringBuilder nightStaysHtml = new StringBuilder("🌙 <b>Top 5 Night Stays:</b><br>");
+            if (rawNightStays.contains(" | ")) {
+                String[] stays = rawNightStays.split(" \\| ");
+                char listChar = 'a';
+                for (String stay : stays) {
+                    nightStaysHtml.append(listChar).append(". ").append(stay).append("<br>");
+                    listChar++;
+                }
+            } else {
+                nightStaysHtml.append(rawNightStays);
+            }
+            summaryNightStays.setText(Html.fromHtml(nightStaysHtml.toString(), Html.FROM_HTML_MODE_COMPACT));
+
             summaryCommonBParties.setText(Html.fromHtml("🔗 <b>Common B Parties (Click to share):</b><br>" + rawCommonB, Html.FROM_HTML_MODE_COMPACT));
 
             // Click to share logic for Common B Parties
@@ -384,7 +426,9 @@ public class MainActivity extends AppCompatActivity {
 
         // Reset UI visibility
         resultsContainer.setVisibility(View.GONE);
-        progressBar.setVisibility(View.GONE);
+        loadingContainer.setVisibility(View.GONE);
+        loadingLogo.clearAnimation();
+        rippleEffect.clearAnimation();
 
         // Reset status text
         statusText.setText("Select files to begin.");

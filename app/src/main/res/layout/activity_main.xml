@@ -96,13 +96,28 @@
                 android:layout_marginStart="6dp"/>
         </LinearLayout>
 
-        <ProgressBar
-            android:id="@+id/progressBar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+        <FrameLayout
+            android:id="@+id/loadingContainer"
+            android:layout_width="120dp"
+            android:layout_height="120dp"
             android:layout_gravity="center"
             android:visibility="gone"
-            android:layout_marginBottom="20dp"/>
+            android:layout_marginBottom="20dp">
+
+            <View
+                android:id="@+id/rippleEffect"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ripple_shadow" />
+
+            <ImageView
+                android:id="@+id/loadingLogo"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center"
+                android:src="@drawable/loading_icon"
+                android:scaleType="fitCenter"/>
+        </FrameLayout>
 
         <!-- Results Section -->
         <LinearLayout

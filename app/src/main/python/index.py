@@ -28,6 +28,10 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 val_str = val_str[3:]
             elif val_str.startswith('88'):
                 val_str = val_str[2:]
+            
+            # Keep only numeric characters
+            val_str = "".join(c for c in val_str if c.isdigit())
+
             if val_str in ['nan', 'None', '']:
                 return ''
             return val_str
@@ -121,7 +125,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
         true_multi_sim_devices = [f"Handset {imei_val} ({sim_cnt} distinct numbers)" for imei_val, sim_cnt in imei_sim_mapping.items() if sim_cnt >= 3]
         summary_multi_sim_str = f"Multi-SIM Burner Hardware: {', '.join(true_multi_sim_devices)}" if true_multi_sim_devices else "Device Identity: No multi-SIM handset anomalies tracked."
 
-        night_stays_location = "Unknown / Insufficient Data"
+        night_stays_list = []
         deep_night_ops_count = 0
         total_valid_times = 0
         raw_night_indices = []
@@ -140,16 +144,22 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             valid_locations = valid_locations[valid_locations != '']
             
             if not valid_locations.empty:
-                top_address_text = valid_locations.value_counts().idxmax()
-                matching_records = raw_night_df[raw_night_df[col_L] == top_address_text]
-                tower_grouping = matching_records.groupby([col_H, col_I]).size().reset_index(name='count').sort_values(by='count', ascending=False)
+                # Get Top 5 locations by frequency
+                top_locations = valid_locations.value_counts().head(5)
                 
-                if not tower_grouping.empty:
-                    top_tower = tower_grouping.iloc[0]
-                    lac_val, cell_id_val = str(top_tower[col_H]).strip(), str(top_tower[col_I]).strip()
-                    lac_info = f"LAC: {lac_val}" if lac_val and lac_val != 'nan' else "LAC: N/A"
-                    cell_info = f"Cell ID: {cell_id_val}" if cell_id_val and cell_id_val != 'nan' else "Cell ID: N/A"
-                    night_stays_location = f"{top_address_text} [{lac_info}, {cell_info}]"
+                for i, (addr_text, count) in enumerate(top_locations.items()):
+                    matching_records = raw_night_df[raw_night_df[col_L] == addr_text]
+                    tower_grouping = matching_records.groupby([col_H, col_I]).size().reset_index(name='count').sort_values(by='count', ascending=False)
+                    
+                    if not tower_grouping.empty:
+                        top_tower = tower_grouping.iloc[0]
+                        lac_val, cell_id_val = str(top_tower[col_H]).strip(), str(top_tower[col_I]).strip()
+                        lac_info = f"LAC: {lac_val}" if lac_val and lac_val != 'nan' else "LAC: N/A"
+                        cell_info = f"Cell ID: {cell_id_val}" if cell_id_val and cell_id_val != 'nan' else "Cell ID: N/A"
+                        night_stays_list.append(f"{addr_text} [{lac_info}, {cell_info}]")
+        
+        # Prepare display string for metrics
+        summary_night_stays_str = " | ".join(night_stays_list) if night_stays_list else "Unknown / Insufficient Data"
 
         deep_night_pct = round((deep_night_ops_count / total_valid_times) * 100, 1) if total_valid_times > 0 else 0
         summary_night_routine_str = f"Deep Night Critical Windows: {deep_night_pct}% of total actions trigger between 01:00 AM and 04:00 AM."
@@ -237,7 +247,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                     "Deep Night Target Critical Windows (0100-0400)"
                 ],
                 "Core Intelligence Value / Flag Operational Status": [
-                    summary_a_parties_str, summary_top_three_str, night_stays_location,
+                    summary_a_parties_str, summary_top_three_str, summary_night_stays_str,
                     summary_common_b_parties_str, summary_imei_swappers_str, summary_multi_sim_str, summary_night_routine_str
                 ]
             }
@@ -314,7 +324,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             "metrics": {
                 "a_parties": summary_a_parties_str,
                 "top_three": summary_top_three_str,
-                "night_stays": night_stays_location,
+                "night_stays": summary_night_stays_str,
                 "common_b_parties": summary_common_b_parties_str,
                 "imei_swappers": summary_imei_swappers_str,
                 "multi_sim": summary_multi_sim_str,

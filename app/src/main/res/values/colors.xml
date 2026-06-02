@@ -19,6 +19,9 @@
     <color name="hint_light">#718096</color>
     <color name="hint_dark">#94A3B8</color>
 
+    <color name="loader_shadow_light">#403182CE</color>
+    <color name="loader_shadow_dark">#8063B3ED</color>
+
     <color name="input_bg_light">#FFFFFF</color>
     <color name="input_bg_dark">#2D3748</color>
 </resources>
