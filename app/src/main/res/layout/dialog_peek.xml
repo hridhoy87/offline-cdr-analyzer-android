@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="?attr/dashboardBackgroundColor">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="📊 Intelligence Preview (Top 50)"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="?attr/primaryTextColor"
+        android:layout_marginBottom="16dp"
+        android:gravity="center"/>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TableLayout
+            android:id="@+id/peekTable"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="#2C3E50"
+            android:padding="1dp">
+
+            <TableRow android:background="#2C3E50">
+                <TextView android:text=" Dt " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
+                <TextView android:text=" Bp " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
+                <TextView android:text=" Freq " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
+                <TextView android:text=" Loc " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
+            </TableRow>
+
+            <!-- Rows will be added dynamically -->
+        </TableLayout>
+    </HorizontalScrollView>
+
+    <Button
+        android:id="@+id/btnClosePeek"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Close"
+        android:layout_gravity="end"
+        android:layout_marginTop="16dp"
+        android:textAllCaps="false"/>
+
+</LinearLayout>

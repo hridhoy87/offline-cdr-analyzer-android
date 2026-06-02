@@ -1,0 +1,14 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Base.Theme.OfflineCDRAnalyzer" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Customize your light theme here. -->
+        <item name="dashboardBackgroundColor">@color/dashboard_bg_light</item>
+        <item name="primaryTextColor">@color/text_primary_light</item>
+        <item name="secondaryTextColor">@color/text_secondary_light</item>
+        <item name="cardBackgroundColorCustom">@color/card_bg_light</item>
+        <item name="hintTextColorCustom">@color/hint_light</item>
+        <item name="inputBackgroundColor">@color/input_bg_light</item>
+    </style>
+
+    <style name="Theme.OfflineCDRAnalyzer" parent="Base.Theme.OfflineCDRAnalyzer" />
+</resources>

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/swipeRefreshLayout"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/dashboardBackgroundColor"
+            android:fillViewport="true"
+            android:fitsSystemWindows="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingStart="20dp"
+                android:paddingEnd="20dp"
+                android:paddingBottom="20dp"
+                android:paddingTop="48dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="CDR Analyzer Dashboard"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:textColor="?attr/primaryTextColor"
+                    android:layout_marginBottom="20dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Intended Location"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:textColor="?attr/secondaryTextColor"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/locationInput"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="e.g., Dhaka, Comilla"
+            android:textColorHint="?attr/hintTextColorCustom"
+            android:textColor="?attr/primaryTextColor"
+            android:backgroundTint="?attr/inputBackgroundColor"
+            android:background="@android:drawable/editbox_background"
+            android:padding="12dp"
+            android:layout_marginBottom="16dp"
+            android:textSize="14sp"/>
+
+        <Button
+            android:id="@+id/btnSelectFiles"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:text="Select CDR Excel Sheets"
+            android:backgroundTint="#2C3E50"
+            android:textColor="#FFFFFF"
+            android:textAllCaps="false"
+            android:layout_marginBottom="12dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="20dp"
+            android:weightSum="2">
+
+            <Button
+                android:id="@+id/btnProcess"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="Process"
+                android:backgroundTint="#3182CE"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:layout_marginEnd="6dp"/>
+
+            <Button
+                android:id="@+id/btnRefresh"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="Refresh"
+                android:backgroundTint="#718096"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:layout_marginStart="6dp"/>
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:layout_marginBottom="20dp"/>
+
+        <!-- Results Section -->
+        <LinearLayout
+            android:id="@+id/resultsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="📊 Intelligence Summary"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                android:textColor="?attr/primaryTextColor"
+                android:layout_marginBottom="12dp"/>
+
+            <!-- Main Summary Card -->
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="8dp"
+                app:cardElevation="2dp"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:background="?attr/cardBackgroundColorCustom">
+
+                    <TextView
+                        android:id="@+id/summaryAParties"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🎯 A Parties: ..."
+                        android:textColor="?attr/primaryTextColor"
+                        android:layout_marginBottom="8dp"
+                        android:textSize="14sp"/>
+
+                    <TextView
+                        android:id="@+id/summaryTopThree"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🔥 Top 10 Bps: ..."
+                        android:textColor="?attr/primaryTextColor"
+                        android:layout_marginBottom="8dp"
+                        android:textSize="14sp"/>
+
+                    <TextView
+                        android:id="@+id/summaryNightStays"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🌙 Night Stays: ..."
+                        android:textColor="?attr/primaryTextColor"
+                        android:layout_marginBottom="8dp"
+                        android:textSize="14sp"/>
+
+                    <TextView
+                        android:id="@+id/summaryCommonBParties"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="🔗 Common B Parties: ..."
+                        android:textColor="?attr/primaryTextColor"
+                        android:textSize="14sp"/>
+
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <!-- Alert Badges -->
+            <TextView
+                android:id="@+id/badgeImei"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:background="#FFF5F5"
+                android:textColor="#C53030"
+                android:text="🚨 Hardware Status: ..."
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"
+                android:drawablePadding="8dp"/>
+
+            <TextView
+                android:id="@+id/badgeMultiSim"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:background="#FFFAF0"
+                android:textColor="#9C4221"
+                android:text="⚠️ Multi-SIM Status: ..."
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="8dp"/>
+
+            <TextView
+                android:id="@+id/badgeNightRoutine"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:background="#F7FAFC"
+                android:textColor="#2D3748"
+                android:text="🕒 Night Routine: ..."
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginBottom="20dp"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:weightSum="2">
+
+                <Button
+                    android:id="@+id/btnTakeAPeek"
+                    android:layout_width="0dp"
+                    android:layout_height="50dp"
+                    android:layout_weight="1"
+                    android:text="👁️ Take a Peek"
+                    android:backgroundTint="#319795"
+                    android:textColor="#FFFFFF"
+                    android:textAllCaps="false"
+                    android:layout_marginEnd="6dp"/>
+
+                <Button
+                    android:id="@+id/btnOpenReport"
+                    android:layout_width="0dp"
+                    android:layout_height="50dp"
+                    android:layout_weight="1"
+                    android:text="📂 Open Report"
+                    android:backgroundTint="#2C3E50"
+                    android:textColor="#FFFFFF"
+                    android:textAllCaps="false"
+                    android:layout_marginStart="6dp"/>
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Select files to begin."
+            android:textColor="?attr/secondaryTextColor"
+            android:textSize="16sp"
+            android:layout_marginTop="10dp"
+            android:gravity="center"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Developed by Maj Asad"
+            android:textColor="#A0AEC0"
+            android:textSize="11sp"
+            android:textStyle="italic"
+            android:layout_marginTop="24dp"
+            android:gravity="center"/>
+
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- Floating 3-dot menu button -->
+        <ImageButton
+            android:id="@+id/btnMenu"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="32dp"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Menu"
+            android:src="@drawable/ic_menu_dots_vertical"
+            app:tint="?attr/primaryTextColor" />
+
+    </FrameLayout>
+</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

@@ -1,0 +1,429 @@
+package com.example.offlinecdranalyzer;
+
+import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.Html;
+import android.view.Menu;
+import android.view.MenuItem;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.ProgressBar;
+import android.widget.PopupMenu;
+import android.widget.TableLayout;
+import android.widget.TableRow;
+import android.widget.TextView;
+import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
+public class MainActivity extends AppCompatActivity {
+
+    private EditText locationInput;
+    private TextView statusText;
+    private ProgressBar progressBar;
+    private SwipeRefreshLayout swipeRefreshLayout;
+    private View resultsContainer;
+    private TextView summaryAParties, summaryTopThree, summaryNightStays, summaryCommonBParties;
+    private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
+    private Button btnOpenReport, btnTakeAPeek;
+
+    private List<String> selectedFilePaths = new ArrayList<>();
+    private String lastGeneratedReportPath = null;
+    private List<Map<PyObject, PyObject>> lastPreviewRows = null;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+
+        // Initialize Chaquopy Python Runtime
+        if (!Python.isStarted()) {
+            Python.start(new AndroidPlatform(this));
+        }
+
+        showWelcomeDialog();
+
+        locationInput = findViewById(R.id.locationInput);
+        statusText = findViewById(R.id.statusText);
+        progressBar = findViewById(R.id.progressBar);
+        swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
+        resultsContainer = findViewById(R.id.resultsContainer);
+
+        summaryAParties = findViewById(R.id.summaryAParties);
+        summaryTopThree = findViewById(R.id.summaryTopThree);
+        summaryNightStays = findViewById(R.id.summaryNightStays);
+        summaryCommonBParties = findViewById(R.id.summaryCommonBParties);
+
+        badgeImei = findViewById(R.id.badgeImei);
+        badgeMultiSim = findViewById(R.id.badgeMultiSim);
+        badgeNightRoutine = findViewById(R.id.badgeNightRoutine);
+
+        Button btnSelectFiles = findViewById(R.id.btnSelectFiles);
+        Button btnProcess = findViewById(R.id.btnProcess);
+        Button btnRefresh = findViewById(R.id.btnRefresh);
+        btnOpenReport = findViewById(R.id.btnOpenReport);
+        btnTakeAPeek = findViewById(R.id.btnTakeAPeek);
+        ImageButton btnMenu = findViewById(R.id.btnMenu);
+
+        // Custom Popup Menu logic
+        btnMenu.setOnClickListener(v -> {
+            PopupMenu popup = new PopupMenu(MainActivity.this, v);
+            popup.getMenuInflater().inflate(R.menu.main_menu, popup.getMenu());
+            popup.setOnMenuItemClickListener(item -> {
+                if (item.getItemId() == R.id.action_about) {
+                    showAboutDialog();
+                    return true;
+                }
+                return false;
+            });
+            popup.show();
+        });
+
+        btnTakeAPeek.setOnClickListener(v -> showPeekDialog());
+
+        // Pull-to-refresh logic disabled for now
+        /*
+        swipeRefreshLayout.setOnRefreshListener(() -> {
+            refreshAppState();
+            swipeRefreshLayout.setRefreshing(false);
+        });
+        */
+        swipeRefreshLayout.setEnabled(false);
+
+        btnRefresh.setOnClickListener(v -> refreshAppState());
+
+        // Native Android File Picker Registry
+        ActivityResultLauncher<Intent> filePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
+                        selectedFilePaths.clear();
+                        resultsContainer.setVisibility(View.GONE);
+                        if (result.getData().getClipData() != null) {
+                            int count = result.getData().getClipData().getItemCount();
+                            for (int i = 0; i < count; i++) {
+                                Uri uri = result.getData().getClipData().getItemAt(i).getUri();
+                                String path = copyUriToCache(uri);
+                                if (path != null) selectedFilePaths.add(path);
+                            }
+                        } else if (result.getData().getData() != null) {
+                            String path = copyUriToCache(result.getData().getData());
+                            if (path != null) selectedFilePaths.add(path);
+                        }
+                        statusText.setText(selectedFilePaths.size() + " spreadsheet(s) staged successfully.");
+                    }
+                }
+        );
+
+        btnSelectFiles.setOnClickListener(v -> {
+            Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+            intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            filePickerLauncher.launch(intent);
+        });
+
+        btnProcess.setOnClickListener(v -> {
+            if (selectedFilePaths.isEmpty()) {
+                statusText.setText("Error: Please select files first.");
+                return;
+            }
+            runPythonEngine();
+        });
+
+        btnOpenReport.setOnClickListener(v -> {
+            if (lastGeneratedReportPath != null) {
+                openExcelFile(lastGeneratedReportPath);
+            }
+        });
+    }
+
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main_menu, menu);
+        return true;
+    }
+
+    @Override
+    public boolean onOptionsItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.action_about) {
+            showAboutDialog();
+            return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
+    private void showAboutDialog() {
+        String capabilities = "• <b>Cross-File Correlation:</b> Detects common contacts across multiple CDR sheets.<br>" +
+                "• <b>Hardware Tracking:</b> Identifies IMEI swapping and multi-SIM usage patterns.<br>" +
+                "• <b>Geospatial Intelligence:</b> Analyzes location patterns for night stays.<br>" +
+                "• <b>Temporal Analysis:</b> Profiles deep-night operational windows.<br>" +
+                "• <b>Automated Reporting:</b> Generates styled Excel reports with day/night color coding.<br>" +
+                "• <b>Privacy First:</b> All processing is done locally on your device.";
+
+        new AlertDialog.Builder(this)
+                .setTitle("About Me & App Capabilities")
+                .setMessage(Html.fromHtml(capabilities, Html.FROM_HTML_MODE_COMPACT))
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showWelcomeDialog() {
+        String message = "<b>ক।</b> শুধু র‍্যাবের সিডিআর গুলোর উপর কাজ করা যায় যেখানে ১৩ টি কলাম বিদ্যমান।<br><br>" +
+                "<b>খ।</b> একসাথে একাধিক সিডিআর এর উপর কাজ করা যায়।<br><br>" +
+                "<b>গ।</b> আউটপুট একটি এক্সেল যাতে দিনের সময় ও রাতের সময় হাইলাইট করা আছে।<br><br>" +
+                "<b>ঘ।</b> বি পার্টি লোকেশন এর কয়েক অক্ষর লিখলেই হবে যেমনঃ Com or Comilla, Dhak or Dhaka";
+
+        new AlertDialog.Builder(this)
+                .setTitle("👋 সিডিআর অ্যানালাইজার ড্যাশবোর্ড")
+                .setMessage(Html.fromHtml(message, Html.FROM_HTML_MODE_COMPACT))
+                .setPositiveButton("✅ বুঝেছি (Got It)", null)
+                .show();
+    }
+
+    private void runPythonEngine() {
+        statusText.setText("Processing calculation matrices...");
+        progressBar.setVisibility(View.VISIBLE);
+        resultsContainer.setVisibility(View.GONE);
+
+        new Thread(() -> {
+            try {
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("index");
+
+                String location = locationInput.getText().toString();
+                String outputDir = getExternalFilesDir(null).getAbsolutePath();
+                String[] pathsArray = selectedFilePaths.toArray(new String[0]);
+
+                PyObject result = pyModule.callAttr("process_cdr_data", pathsArray, location, outputDir);
+                Map<PyObject, PyObject> resultMap = result.asMap();
+
+                String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
+
+                runOnUiThread(() -> {
+                    progressBar.setVisibility(View.GONE);
+                    if ("success".equals(status)) {
+                        populateResults(resultMap);
+                    } else {
+                        statusText.setText("Error: " + resultMap.get(py.getBuiltins().get("str").call("message")).toString());
+                        statusText.setTextColor(Color.RED);
+                    }
+                });
+
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    progressBar.setVisibility(View.GONE);
+                    statusText.setText("Engine failure: " + e.getMessage());
+                });
+            }
+        }).start();
+    }
+
+    private void populateResults(Map<PyObject, PyObject> result) {
+        try {
+            Python py = Python.getInstance();
+            lastGeneratedReportPath = result.get(py.getBuiltins().get("str").call("output_path")).toString();
+            Map<PyObject, PyObject> metrics = result.get(py.getBuiltins().get("str").call("metrics")).asMap();
+
+            // Store preview data
+            lastPreviewRows = new ArrayList<>();
+            List<PyObject> rows = metrics.get(py.getBuiltins().get("str").call("preview_rows")).asList();
+            for (PyObject row : rows) {
+                lastPreviewRows.add(row.asMap());
+            }
+
+            String rawTopTargets = metrics.get(py.getBuiltins().get("str").call("top_three")).toString();
+            String rawCommonB = metrics.get(py.getBuiltins().get("str").call("common_b_parties")).toString();
+
+            summaryAParties.setText(Html.fromHtml("🎯 <b>A Parties:</b> " + metrics.get(py.getBuiltins().get("str").call("a_parties")), Html.FROM_HTML_MODE_COMPACT));
+            summaryTopThree.setText(Html.fromHtml("🔥 <b>Top Targets (Click to copy):</b><br>" + rawTopTargets, Html.FROM_HTML_MODE_COMPACT));
+            
+            // Click to share logic for Top Targets
+            summaryTopThree.setOnClickListener(v -> {
+                String copyText = rawTopTargets.replace(", ", ",\n") + ",";
+                shareText("Top Targets", copyText);
+            });
+
+            summaryNightStays.setText(Html.fromHtml("🌙 <b>Night Stays:</b> " + metrics.get(py.getBuiltins().get("str").call("night_stays")), Html.FROM_HTML_MODE_COMPACT));
+            summaryCommonBParties.setText(Html.fromHtml("🔗 <b>Common B Parties (Click to share):</b><br>" + rawCommonB, Html.FROM_HTML_MODE_COMPACT));
+
+            // Click to share logic for Common B Parties
+            summaryCommonBParties.setOnClickListener(v -> {
+                if (!"None".equalsIgnoreCase(rawCommonB) && !"N/A (Single File Uploaded)".equalsIgnoreCase(rawCommonB)) {
+                    String copyText = rawCommonB.replace(", ", ",\n") + ",";
+                    shareText("Common B Parties", copyText);
+                } else {
+                    Toast.makeText(this, "No common B parties to share", Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            String imei = metrics.get(py.getBuiltins().get("str").call("imei_swappers")).toString();
+            badgeImei.setText(imei.contains("IMEI Swappers:") ? "🚨 " + imei : "🛡️ " + imei);
+
+            String multiSim = metrics.get(py.getBuiltins().get("str").call("multi_sim")).toString();
+            badgeMultiSim.setText(multiSim.contains("Multi-SIM Burner Hardware:") ? "⚠️ " + multiSim : "🛡️ " + multiSim);
+
+            badgeNightRoutine.setText("🕒 " + metrics.get(py.getBuiltins().get("str").call("night_routine")).toString());
+
+            resultsContainer.setVisibility(View.VISIBLE);
+            statusText.setText("Intelligence Report Compiled Successfully.");
+            statusText.setTextColor(Color.parseColor("#2C3E50"));
+
+        } catch (Exception e) {
+            statusText.setText("Display Error: " + e.getMessage());
+        }
+    }
+
+    private void openExcelFile(String path) {
+        File file = new File(path);
+        Uri uri = androidx.core.content.FileProvider.getUriForFile(this, getPackageName() + ".provider", file);
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            statusText.setText("Could not open Excel app. File saved at: " + path);
+        }
+    }
+
+    private void showPeekDialog() {
+        if (lastPreviewRows == null || lastPreviewRows.isEmpty()) {
+            Toast.makeText(this, "No data to preview", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_peek, null);
+        TableLayout tableLayout = dialogView.findViewById(R.id.peekTable);
+        Button btnClose = dialogView.findViewById(R.id.btnClosePeek);
+
+        Python py = Python.getInstance();
+        PyObject strDt = py.getBuiltins().get("str").call("dt");
+        PyObject strBp = py.getBuiltins().get("str").call("bp");
+        PyObject strFreq = py.getBuiltins().get("str").call("freq");
+        PyObject strLoc = py.getBuiltins().get("str").call("loc");
+
+        int rowCount = 0;
+        for (Map<PyObject, PyObject> row : lastPreviewRows) {
+            rowCount++;
+            TableRow tableRow = new TableRow(this);
+            tableRow.setBackgroundColor(Color.WHITE);
+            
+            // Add Dt
+            tableRow.addView(createTableCell(row.get(strDt).toString()));
+            // Add Bp
+            tableRow.addView(createTableCell(row.get(strBp).toString()));
+            // Add Freq
+            tableRow.addView(createTableCell(row.get(strFreq).toString()));
+            
+            // Add Loc (Last 15 chars)
+            String loc = row.get(strLoc).toString();
+            if (loc.length() > 15) {
+                loc = "..." + loc.substring(loc.length() - 15);
+            }
+            tableRow.addView(createTableCell(loc));
+
+            tableLayout.addView(tableRow);
+        }
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .create();
+
+        btnClose.setOnClickListener(v1 -> dialog.dismiss());
+        dialog.show();
+    }
+
+    private TextView createTableCell(String text) {
+        TextView textView = new TextView(this);
+        textView.setText(text);
+        textView.setPadding(8, 8, 8, 8);
+        textView.setGravity(android.view.Gravity.CENTER);
+        textView.setTextColor(Color.BLACK);
+        textView.setBackgroundResource(android.R.drawable.editbox_background_normal);
+        return textView;
+    }
+
+    private void shareText(String title, String text) {
+        Intent sendIntent = new Intent();
+        sendIntent.setAction(Intent.ACTION_SEND);
+        sendIntent.putExtra(Intent.EXTRA_TEXT, text);
+        sendIntent.setType("text/plain");
+
+        Intent shareIntent = Intent.createChooser(sendIntent, title);
+        startActivity(shareIntent);
+    }
+
+    private void refreshAppState() {
+        // Clear inputs
+        locationInput.setText("");
+        selectedFilePaths.clear();
+        lastGeneratedReportPath = null;
+        lastPreviewRows = null;
+
+        // Reset UI visibility
+        resultsContainer.setVisibility(View.GONE);
+        progressBar.setVisibility(View.GONE);
+
+        // Reset status text
+        statusText.setText("Select files to begin.");
+        statusText.setTextColor(Color.parseColor("#718096"));
+
+        // Optionally clear cache
+        File cacheDir = getCacheDir();
+        if (cacheDir.exists()) {
+            File[] files = cacheDir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.getName().startsWith("temp_cdr_")) f.delete();
+                }
+            }
+        }
+    }
+
+    /**
+     * Copies a Content URI to a temporary file in the app cache so Python can read it.
+     */
+    private String copyUriToCache(Uri uri) {
+        try {
+            String fileName = "temp_cdr_" + System.currentTimeMillis() + ".xlsx";
+            File tempFile = new File(getCacheDir(), fileName);
+            InputStream inputStream = getContentResolver().openInputStream(uri);
+            if (inputStream == null) return null;
+            FileOutputStream outputStream = new FileOutputStream(tempFile);
+            byte[] buffer = new byte[8192];
+            int length;
+            while ((length = inputStream.read(buffer)) > 0) {
+                outputStream.write(buffer, 0, length);
+            }
+            outputStream.flush();
+            outputStream.close();
+            inputStream.close();
+            return tempFile.getAbsolutePath();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+}
