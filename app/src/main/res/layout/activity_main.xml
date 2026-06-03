@@ -10,6 +10,7 @@
         android:layout_height="match_parent">
 
         <ScrollView
+            android:id="@+id/mainScrollView"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:background="?attr/dashboardBackgroundColor"
@@ -37,7 +38,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Intended Location"
+            android:text="Desired Bp Location"
             android:textSize="14sp"
             android:textStyle="bold"
             android:textColor="?attr/secondaryTextColor"
@@ -136,6 +137,41 @@
                 android:textColor="?attr/primaryTextColor"
                 android:layout_marginBottom="12dp"/>
 
+            <!-- Search Row -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginBottom="16dp"
+                android:weightSum="100">
+
+                <EditText
+                    android:id="@+id/searchCdrInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="88"
+                    android:hint="Search in CDR(s) (e.g. Bp, IMEI, Loc, IMSI)"
+                    android:textColorHint="?attr/hintTextColorCustom"
+                    android:textColor="?attr/primaryTextColor"
+                    android:backgroundTint="?attr/inputBackgroundColor"
+                    android:background="@android:drawable/editbox_background"
+                    android:padding="12dp"
+                    android:textSize="14sp"
+                    android:inputType="text"/>
+
+                <ImageButton
+                    android:id="@+id/btnSearchCdr"
+                    android:layout_width="0dp"
+                    android:layout_height="50dp"
+                    android:layout_weight="12"
+                    android:layout_marginStart="4dp"
+                    android:src="@drawable/ic_search"
+                    android:background="?attr/selectableItemBackground"
+                    android:contentDescription="Search"
+                    app:tint="?attr/primaryTextColor"
+                    android:scaleType="centerInside"/>
+            </LinearLayout>
+
             <!-- Main Summary Card -->
             <androidx.cardview.widget.CardView
                 android:layout_width="match_parent"
@@ -164,7 +200,7 @@
                         android:id="@+id/summaryTopThree"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="🔥 Top 10 Bps: ..."
+                        android:text="🔥 Top B parties: ..."
                         android:textColor="?attr/primaryTextColor"
                         android:layout_marginBottom="8dp"
                         android:textSize="14sp"/>

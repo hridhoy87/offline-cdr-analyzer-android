@@ -2,6 +2,7 @@ import io
 import os
 import sys
 import json
+import string
 import numpy as np
 import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -363,3 +364,157 @@ if __name__ == "__main__":
     # --- ADD THIS TO PREVENT THE SCRIPT FROM EXITING PREMATURELY ---
     # Keep the process context alive for 5 seconds so Dart finishes file operations
     time.sleep(5)
+
+def search_cdr_data(file_paths, search_query):
+    """
+    Scans ALL columns across all uploaded CDR dataframes for a list of terms.
+    Generates structured, human-readable summaries designed for an Android UI Dialog.
+    """
+    try:
+        if file_paths is None:
+            return {"status": "error", "message": "No files selected."}
+
+        # Safely handle Java array/list wrapping from Chaquopy
+        safe_paths = [str(p) for p in file_paths]
+        search_terms = [s.strip() for s in str(search_query).split(",") if s.strip()]
+
+        if not search_terms:
+            return {"status": "error", "message": "No search queries provided."}
+
+        def clean_num(val):
+            if pd.isna(val):
+                return ''
+            val_str = str(val).strip().split('.')[0]
+            if val_str.startswith('+88'): val_str = val_str[3:]
+            elif val_str.startswith('88'): val_str = val_str[2:]
+            val_str = "".join(c for c in val_str if c.isdigit())
+            return val_str
+
+        all_dataframes = []
+
+        for path in safe_paths:
+            if not os.path.exists(path):
+                continue
+            try:
+                excel_file = pd.ExcelFile(path, engine="openpyxl")
+                df = excel_file.parse(sheet_name=excel_file.sheet_names[0])
+                if df.empty:
+                    continue
+
+                cols = df.columns
+                if len(cols) < 12:
+                    continue
+
+                col_A_name = cols[0]  # Date/Time
+                col_C_name = cols[2]  # A Party Number
+                col_L_name = cols[11] # Location Address
+
+                # Clean target A-Party to identify ownership context
+                df_clean_temp = df[col_C_name].apply(clean_num)
+                a_parties = [num for num in df_clean_temp.unique() if num and num != 'nan']
+                a_party = a_parties[0] if a_parties else "Unknown"
+
+                # Create uniform hidden backup tracking pointers
+                df['_internal_a_party'] = a_party
+                df['_internal_time'] = pd.to_datetime(df[col_A_name], errors='coerce')
+                df['_internal_loc'] = df[col_L_name].fillna('').astype(str).str.strip()
+
+                all_dataframes.append(df)
+            except:
+                continue
+
+        if not all_dataframes:
+            return {"status": "error", "message": "Could not extract or compile data from target sources."}
+
+        combined_df = pd.concat(all_dataframes, ignore_index=True)
+        dialog_lines = []
+
+        # Identify phone number columns for special handling
+        # Usually Col 2 (A Party) and Col 3 (B Party) in RAB CDRs
+        cols = combined_df.columns
+        phone_cols = [cols[2], cols[3]] if len(cols) > 3 else []
+
+        for term_idx, term in enumerate(search_terms):
+            prefix = string.ascii_lowercase[term_idx % 26] + ". "
+            clean_term = clean_num(term)
+            is_numeric_term = clean_term.isdigit() and len(clean_term) > 0
+
+            # 1. Build mask with high precision
+            # We separate Phone Number columns from general columns to avoid substring false positives
+            
+            # Mask for general columns (Location, Date, IMEI, etc.)
+            other_cols = [c for c in combined_df.columns if c not in phone_cols and not str(c).startswith('_internal_')]
+            general_mask = combined_df[other_cols].astype(str).apply(
+                lambda col: col.str.contains(term, case=False, na=False)
+            ).any(axis=1)
+
+            # Mask for phone columns (A/B Party)
+            # If the term is numeric, we do strict comparison to avoid "123" matching "017...123...00"
+            phone_mask = pd.Series(False, index=combined_df.index)
+            for p_col in phone_cols:
+                col_series = combined_df[p_col].astype(str).apply(clean_num)
+                if is_numeric_term:
+                    if len(clean_term) >= 11:
+                        # Exact match for full numbers
+                        phone_mask |= (col_series == clean_term)
+                    else:
+                        # Suffix match for partial numbers (e.g. last 5 digits) 
+                        # or exact match for short codes
+                        phone_mask |= (col_series.str.endswith(clean_term) | (col_series == clean_term))
+                else:
+                    # Non-numeric search in phone columns (rare, but handle just in case)
+                    phone_mask |= combined_df[p_col].astype(str).str.contains(term, case=False, na=False)
+
+            term_mask = general_mask | phone_mask
+            match_df = combined_df[term_mask]
+
+            # Scenario A: Term was completely absent
+            if match_df.empty:
+                dialog_lines.append(f"<b>{prefix}Not Found in any of the CDR(s)</b> ({term})")
+                continue
+
+            # Extract tracking fields
+            found_a_parties = sorted(list(set(match_df['_internal_a_party'].astype(str).tolist())))
+            a_parties_str = ", ".join(found_a_parties)
+            freq = len(match_df)
+
+            # Build breakdown view block using HTML for bolding in Android
+            line_header = f"<b>{prefix}{term} was found in {a_parties_str} CDR</b>"
+
+            # Metrics: Time
+            hours = match_df['_internal_time'].dt.hour.dropna().value_counts().head(2)
+            if not hours.empty:
+                time_strings = [f"{int(h):02d}:00" for h in hours.index]
+                time_info = " and ".join(time_strings) + " hours"
+            else:
+                time_info = "N/A"
+
+            # Metrics: Locations
+            locs = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3)
+            if not locs.empty:
+                loc_list = locs.index.astype(str).tolist()
+                loc_info_html = "<br>"
+                for i, l in enumerate(loc_list):
+                    prefix_loc = string.ascii_lowercase[i % 26] + ". "
+                    loc_info_html += f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{prefix_loc}{l}<br>"
+            else:
+                loc_info_html = " N/A"
+
+            block = (
+                f"{line_header}<br>"
+                f"&nbsp;&nbsp;&nbsp;(i) Frequency: {freq} times<br>"
+                f"&nbsp;&nbsp;&nbsp;(ii) Time: Mostly around {time_info}<br>"
+                f"&nbsp;&nbsp;&nbsp;(iii) Location: Mostly in{loc_info_html}"
+            )
+            dialog_lines.append(block)
+
+        # Join with double line breaks
+        final_summary_html = "<br><br>".join(dialog_lines)
+
+        return {
+            "status": "success",
+            "summary_html": final_summary_html
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": f"Global Search failure: {str(e)}"}

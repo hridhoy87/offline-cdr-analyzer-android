@@ -14,6 +14,7 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -43,16 +44,18 @@ import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
 
-    private EditText locationInput;
+    private EditText locationInput, searchCdrInput;
     private TextView statusText;
     private View loadingContainer;
     private ImageView loadingLogo;
     private View rippleEffect;
     private SwipeRefreshLayout swipeRefreshLayout;
+    private android.widget.ScrollView mainScrollView;
     private View resultsContainer;
     private TextView summaryAParties, summaryTopThree, summaryNightStays, summaryCommonBParties;
     private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
     private Button btnOpenReport, btnTakeAPeek;
+    private ImageButton btnSearchCdr;
 
     private List<String> selectedFilePaths = new ArrayList<>();
     private String lastGeneratedReportPath = null;
@@ -76,7 +79,11 @@ public class MainActivity extends AppCompatActivity {
         loadingLogo = findViewById(R.id.loadingLogo);
         rippleEffect = findViewById(R.id.rippleEffect);
         swipeRefreshLayout = findViewById(R.id.swipeRefreshLayout);
+        mainScrollView = findViewById(R.id.mainScrollView);
         resultsContainer = findViewById(R.id.resultsContainer);
+
+        searchCdrInput = findViewById(R.id.searchCdrInput);
+        btnSearchCdr = findViewById(R.id.btnSearchCdr);
 
         summaryAParties = findViewById(R.id.summaryAParties);
         summaryTopThree = findViewById(R.id.summaryTopThree);
@@ -108,18 +115,37 @@ public class MainActivity extends AppCompatActivity {
             popup.show();
         });
 
-        btnTakeAPeek.setOnClickListener(v -> showPeekDialog());
+        btnTakeAPeek.setOnClickListener(v -> {
+            hideKeyboard(v);
+            showPeekDialog();
+        });
 
-        // Pull-to-refresh logic disabled for now
-        /*
+        btnSearchCdr.setOnClickListener(v -> {
+            hideKeyboard(v);
+            String query = searchCdrInput.getText().toString().trim();
+            if (query.isEmpty()) {
+                Toast.makeText(this, "Please enter search terms", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            performCdrSearch(query);
+        });
+
+        // Pull-to-refresh logic
+        swipeRefreshLayout.setEnabled(true);
         swipeRefreshLayout.setOnRefreshListener(() -> {
             refreshAppState();
             swipeRefreshLayout.setRefreshing(false);
         });
-        */
-        swipeRefreshLayout.setEnabled(false);
 
-        btnRefresh.setOnClickListener(v -> refreshAppState());
+        // Fix: Only allow SwipeRefresh when ScrollView is at the very top
+        mainScrollView.getViewTreeObserver().addOnScrollChangedListener(() -> {
+            swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
+        });
+
+        btnRefresh.setOnClickListener(v -> {
+            hideKeyboard(v);
+            refreshAppState();
+        });
 
         // Native Android File Picker Registry
         ActivityResultLauncher<Intent> filePickerLauncher = registerForActivityResult(
@@ -145,6 +171,7 @@ public class MainActivity extends AppCompatActivity {
         );
 
         btnSelectFiles.setOnClickListener(v -> {
+            hideKeyboard(v);
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
@@ -152,6 +179,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         btnProcess.setOnClickListener(v -> {
+            hideKeyboard(v);
             if (selectedFilePaths.isEmpty()) {
                 statusText.setText("Error: Please select files first.");
                 return;
@@ -286,12 +314,12 @@ public class MainActivity extends AppCompatActivity {
             String rawNightStays = metrics.get(py.getBuiltins().get("str").call("night_stays")).toString();
 
             summaryAParties.setText(Html.fromHtml("🎯 <b>A Parties:</b> " + metrics.get(py.getBuiltins().get("str").call("a_parties")), Html.FROM_HTML_MODE_COMPACT));
-            summaryTopThree.setText(Html.fromHtml("🔥 <b>Top Targets (Click to share):</b><br>" + rawTopTargets, Html.FROM_HTML_MODE_COMPACT));
+            summaryTopThree.setText(Html.fromHtml("🔥 <b>Top B parties (Click to share):</b><br>" + rawTopTargets, Html.FROM_HTML_MODE_COMPACT));
             
-            // Click to share logic for Top Targets
+            // Click to share logic for Top B parties
             summaryTopThree.setOnClickListener(v -> {
                 String copyText = rawTopTargets.replace(", ", ",\n") + ",";
-                shareText("Top Targets", copyText);
+                shareText("Top B parties", copyText);
             });
 
             // Format Night Stays as a list
@@ -335,6 +363,96 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             statusText.setText("Display Error: " + e.getMessage());
         }
+    }
+
+    private void performCdrSearch(String query) {
+        statusText.setText("Searching in CDR database...");
+        loadingContainer.setVisibility(View.VISIBLE);
+
+        Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
+        complexAnim.setAnimationListener(new Animation.AnimationListener() {
+            @Override public void onAnimationStart(Animation animation) {}
+            @Override public void onAnimationRepeat(Animation animation) {}
+            @Override
+            public void onAnimationEnd(Animation animation) {
+                if (loadingContainer.getVisibility() == View.VISIBLE) {
+                    loadingLogo.startAnimation(complexAnim);
+                    rippleEffect.startAnimation(complexAnim);
+                }
+            }
+        });
+        loadingLogo.startAnimation(complexAnim);
+        rippleEffect.startAnimation(complexAnim);
+
+        new Thread(() -> {
+            try {
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("index");
+                String[] pathsArray = selectedFilePaths.toArray(new String[0]);
+
+                PyObject result = pyModule.callAttr("search_cdr_data", pathsArray, query);
+                Map<PyObject, PyObject> resultMap = result.asMap();
+
+                String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
+
+                runOnUiThread(() -> {
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    loadingContainer.setVisibility(View.GONE);
+                    if ("success".equals(status)) {
+                        String summaryHtml = resultMap.get(py.getBuiltins().get("str").call("summary_html")).toString();
+                        showSearchResultsDialog(summaryHtml);
+                    } else {
+                        Toast.makeText(this, "Search Error: " + resultMap.get(py.getBuiltins().get("str").call("message")), Toast.LENGTH_LONG).show();
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    loadingContainer.setVisibility(View.GONE);
+                    Toast.makeText(this, "Search Engine Failure: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
+        }).start();
+    }
+
+    private void showSearchResultsDialog(String summaryHtml) {
+        // Create a custom view for the dialog to handle click listeners
+        TextView textView = new TextView(this);
+        textView.setText(Html.fromHtml(summaryHtml, Html.FROM_HTML_MODE_COMPACT));
+        textView.setPadding(48, 40, 48, 40);
+        textView.setTextSize(14);
+
+        // Explicitly resolve primary text color from theme to avoid blue/invisible text
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true);
+        textView.setTextColor(typedValue.data);
+
+        // Click to Copy & Share entire result
+        textView.setOnClickListener(v -> {
+            String plainText = textView.getText().toString();
+            
+            // 1. Copy to clipboard
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText("CDR Search Result", plainText);
+            clipboard.setPrimaryClip(clip);
+            
+            // 2. Open Share Sheet
+            shareText("CDR Search Result", plainText);
+            
+            Toast.makeText(this, "Result copied and sharing opened", Toast.LENGTH_SHORT).show();
+        });
+
+        // Wrap in ScrollView in case results are long
+        androidx.core.widget.NestedScrollView scrollView = new androidx.core.widget.NestedScrollView(this);
+        scrollView.addView(textView);
+
+        new AlertDialog.Builder(this)
+                .setTitle("🔍 CDR Search Results (Tap to Share)")
+                .setView(scrollView)
+                .setPositiveButton("Close", null)
+                .show();
     }
 
     private void openExcelFile(String path) {
@@ -420,6 +538,7 @@ public class MainActivity extends AppCompatActivity {
     private void refreshAppState() {
         // Clear inputs
         locationInput.setText("");
+        searchCdrInput.setText("");
         selectedFilePaths.clear();
         lastGeneratedReportPath = null;
         lastPreviewRows = null;
@@ -432,7 +551,9 @@ public class MainActivity extends AppCompatActivity {
 
         // Reset status text
         statusText.setText("Select files to begin.");
-        statusText.setTextColor(Color.parseColor("#718096"));
+        android.util.TypedValue typedValue = new android.util.TypedValue();
+        getTheme().resolveAttribute(R.attr.secondaryTextColor, typedValue, true);
+        statusText.setTextColor(typedValue.data);
 
         // Optionally clear cache
         File cacheDir = getCacheDir();
@@ -449,6 +570,13 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Copies a Content URI to a temporary file in the app cache so Python can read it.
      */
+    private void hideKeyboard(View view) {
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) {
+            imm.hideSoftInputFromWindow(view.getWindowToken(), 0);
+        }
+    }
+
     private String copyUriToCache(Uri uri) {
         try {
             String fileName = "temp_cdr_" + System.currentTimeMillis() + ".xlsx";
