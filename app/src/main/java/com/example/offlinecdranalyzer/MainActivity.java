@@ -54,11 +54,12 @@ public class MainActivity extends AppCompatActivity {
     private View resultsContainer;
     private TextView summaryAParties, summaryTopThree, summaryNightStays, summaryCommonBParties;
     private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
-    private Button btnOpenReport, btnTakeAPeek;
+    private Button btnOpenReport, btnTakeAPeek, btnLinkAnalysis;
     private ImageButton btnSearchCdr;
 
     private List<String> selectedFilePaths = new ArrayList<>();
     private String lastGeneratedReportPath = null;
+    private String lastGraphData = null;
     private List<Map<PyObject, PyObject>> lastPreviewRows = null;
 
     @Override
@@ -99,6 +100,7 @@ public class MainActivity extends AppCompatActivity {
         Button btnRefresh = findViewById(R.id.btnRefresh);
         btnOpenReport = findViewById(R.id.btnOpenReport);
         btnTakeAPeek = findViewById(R.id.btnTakeAPeek);
+        btnLinkAnalysis = findViewById(R.id.btnLinkAnalysis);
         ImageButton btnMenu = findViewById(R.id.btnMenu);
 
         // Custom Popup Menu logic
@@ -109,6 +111,9 @@ public class MainActivity extends AppCompatActivity {
                 if (item.getItemId() == R.id.action_about) {
                     showAboutDialog();
                     return true;
+                } else if (item.getItemId() == R.id.action_update) {
+                    showUpdateBanner();
+                    return true;
                 }
                 return false;
             });
@@ -118,6 +123,15 @@ public class MainActivity extends AppCompatActivity {
         btnTakeAPeek.setOnClickListener(v -> {
             hideKeyboard(v);
             showPeekDialog();
+        });
+
+        btnLinkAnalysis.setOnClickListener(v -> {
+            hideKeyboard(v);
+            if (lastGraphData != null) {
+                Intent intent = new Intent(this, LinkAnalysisActivity.class);
+                intent.putExtra("graph_data", lastGraphData);
+                startActivity(intent);
+            }
         });
 
         btnSearchCdr.setOnClickListener(v -> {
@@ -221,6 +235,14 @@ public class MainActivity extends AppCompatActivity {
                 .setTitle("About Me & App Capabilities")
                 .setMessage(Html.fromHtml(capabilities, Html.FROM_HTML_MODE_COMPACT))
                 .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showUpdateBanner() {
+        new AlertDialog.Builder(this)
+                .setTitle("Check for update")
+                .setMessage("When it will be published in google playstore this button will work")
+                .setPositiveButton("OK", null)
                 .show();
     }
 
@@ -355,6 +377,10 @@ public class MainActivity extends AppCompatActivity {
             badgeMultiSim.setText(multiSim.contains("Multi-SIM Burner Hardware:") ? "⚠️ " + multiSim : "🛡️ " + multiSim);
 
             badgeNightRoutine.setText("🕒 " + metrics.get(py.getBuiltins().get("str").call("night_routine")).toString());
+
+            // Handle Link Analysis data
+            lastGraphData = metrics.get(py.getBuiltins().get("str").call("graph_data")).toString();
+            btnLinkAnalysis.setVisibility(View.VISIBLE);
 
             resultsContainer.setVisibility(View.VISIBLE);
             statusText.setText("Intelligence Report Compiled Successfully.");
@@ -542,10 +568,12 @@ public class MainActivity extends AppCompatActivity {
         selectedFilePaths.clear();
         lastGeneratedReportPath = null;
         lastPreviewRows = null;
+        lastGraphData = null;
 
         // Reset UI visibility
         resultsContainer.setVisibility(View.GONE);
         loadingContainer.setVisibility(View.GONE);
+        btnLinkAnalysis.setVisibility(View.GONE);
         loadingLogo.clearAnimation();
         rippleEffect.clearAnimation();
 

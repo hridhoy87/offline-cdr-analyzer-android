@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #f8f9fa; font-family: sans-serif; }
+        #graph-container { width: 100vw; height: 100vh; }
+
+        /* Style the tooltip to be high contrast */
+        .scene-tooltip {
+            color: #000000 !important;
+            background: rgba(255, 255, 255, 0.95) !important;
+            padding: 4px 10px !important;
+            border-radius: 4px !important;
+            border: 1px solid #333 !important;
+            font-size: 14px !important;
+            font-weight: bold !important;
+        }
+
+        .legend {
+            position: absolute; bottom: 10px; left: 10px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 8px; border-radius: 6px;
+            font-size: 10px; color: #333;
+            border: 1px solid #ccc; z-index: 100;
+            pointer-events: none;
+        }
+        .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    </style>
+    <script src="three.min.js"></script>
+    <script src="3d-force-graph.min.js"></script>
+</head>
+<body>
+
+<div id="graph-container"></div>
+
+<div class="legend">
+    <strong>Molecular Link Model</strong><br>
+    <span class="legend-dot" style="background:#3182CE"></span> A-Party <br>
+    <span class="legend-dot" style="background:#E53E3E"></span> Common B <br>
+    <span class="legend-dot" style="background:#718096"></span> Uncommon B
+</div>
+
+<script>
+    const Graph = ForceGraph3D()(document.getElementById('graph-container'));
+
+    Graph.backgroundColor('#f8f9fa')
+         .showNavInfo(false)
+         .nodeColor(node => {
+             if (node.isCommon) return '#E53E3E'; // Red Oxygen
+             if (node.isCenter) return '#3182CE'; // Blue Hydrogen
+             return '#718096';                    // Gray Peripheral
+         })
+         .nodeVal(node => node.isCommon ? 12 : 5)  // Red nodes are larger
+         .nodeLabel(node => node.id)
+
+         // Visiblity Fix for Links
+         .linkColor(link => link.isCommonLink ? '#000000' : '#888888') // Black for bridges
+         .linkWidth(link => link.isCommonLink ? 4 : 1)                 // Thick for bridges
+         .linkOpacity(0.9)
+         .linkDirectionalParticles(link => link.isCommonLink ? 4 : 0)
+         .linkDirectionalParticleWidth(3)
+         .linkDirectionalParticleColor(() => '#E53E3E')
+
+         // Force setup to pull hubs together through bridges
+         .d3Force('link').distance(link => link.isCommonLink ? 70 : 35)
+         .d3Force('charge').strength(-120);
+
+    function renderOfflineData(jsonString) {
+        try {
+            const rawData = JSON.parse(jsonString);
+            const nodes = [];
+            const links = [];
+            const nodeSet = new Set();
+
+            // 1. A-Parties
+            if (rawData.centers) {
+                rawData.centers.forEach(id => {
+                    const sid = String(id);
+                    if (!nodeSet.has(sid)) {
+                        nodes.push({ id: sid, isCenter: true, isCommon: false });
+                        nodeSet.add(sid);
+                    }
+                });
+            }
+
+            // 2. Common B-Parties (Bridges)
+            if (rawData["common-links"]) {
+                rawData["common-links"].forEach(item => {
+                    const cid = String(item.target);
+                    if (!nodeSet.has(cid)) {
+                        nodes.push({ id: cid, isCenter: false, isCommon: true });
+                        nodeSet.add(cid);
+                    }
+                    // Connection: Hub1 -- Bridge -- Hub2
+                    item.source.forEach(hubId => {
+                        links.push({
+                            source: String(hubId),
+                            target: cid,
+                            isCommonLink: true
+                        });
+                    });
+                });
+            }
+
+            // 3. Uncommon B-Parties
+            if (rawData["uncommon-links"]) {
+                rawData["uncommon-links"].forEach(item => {
+                    const source = String(item.source);
+                    item["target-links"].forEach(target => {
+                        const tid = String(target);
+                        if (!nodeSet.has(tid)) {
+                            nodes.push({ id: tid, isCenter: false, isCommon: false });
+                            nodeSet.add(tid);
+                        }
+                        links.push({
+                            source: source,
+                            target: tid,
+                            isCommonLink: false
+                        });
+                    });
+                });
+            }
+
+            Graph.graphData({ nodes, links });
+
+            // Adjust zoom to fit
+            setTimeout(() => {
+                Graph.zoomToFit(800, 100);
+            }, 500);
+
+        } catch (e) {
+            console.error("Render Error:", e);
+        }
+    }
+</script>
+</body>
+</html>

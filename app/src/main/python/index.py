@@ -29,7 +29,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 val_str = val_str[3:]
             elif val_str.startswith('88'):
                 val_str = val_str[2:]
-            
+
             # Keep only numeric characters
             val_str = "".join(c for c in val_str if c.isdigit())
 
@@ -40,7 +40,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
         for path in file_paths:
             if not os.path.exists(path):
                 return {"status": "error", "message": f"File not found on disk: {path}"}
-            
+
             filename = os.path.basename(path)
             try:
                 # Use openpyxl explicitly and check for data
@@ -117,7 +117,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
         summary_a_parties_str = ", ".join(unique_a_parties)
 
         raw_imei_clean = combined_df[(combined_df[col_J] != '') & (combined_df[col_C] != '')]
-        
+
         target_imei_counts = raw_imei_clean.groupby(col_C)[col_J].nunique().to_dict()
         true_swapped_targets = [f"{num} ({cnt} hardware profiles)" for num, cnt in target_imei_counts.items() if cnt >= 3]
         summary_imei_swappers_str = f"IMEI Swappers: {', '.join(true_swapped_targets)}" if true_swapped_targets else "Hardware Stability: No device swapping patterns observed."
@@ -138,27 +138,27 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                     raw_night_indices.append(idx)
                 if 1 <= ts.hour <= 4:
                     deep_night_ops_count += 1
-        
+
         if raw_night_indices:
             raw_night_df = combined_df.iloc[raw_night_indices].copy()
             valid_locations = raw_night_df[col_L].astype(str).str.strip()
             valid_locations = valid_locations[valid_locations != '']
-            
+
             if not valid_locations.empty:
                 # Get Top 5 locations by frequency
                 top_locations = valid_locations.value_counts().head(5)
-                
+
                 for i, (addr_text, count) in enumerate(top_locations.items()):
                     matching_records = raw_night_df[raw_night_df[col_L] == addr_text]
                     tower_grouping = matching_records.groupby([col_H, col_I]).size().reset_index(name='count').sort_values(by='count', ascending=False)
-                    
+
                     if not tower_grouping.empty:
                         top_tower = tower_grouping.iloc[0]
                         lac_val, cell_id_val = str(top_tower[col_H]).strip(), str(top_tower[col_I]).strip()
                         lac_info = f"LAC: {lac_val}" if lac_val and lac_val != 'nan' else "LAC: N/A"
                         cell_info = f"Cell ID: {cell_id_val}" if cell_id_val and cell_id_val != 'nan' else "Cell ID: N/A"
                         night_stays_list.append(f"{addr_text} [{lac_info}, {cell_info}]")
-        
+
         # Prepare display string for metrics
         summary_night_stays_str = " | ".join(night_stays_list) if night_stays_list else "Unknown / Insufficient Data"
 
@@ -186,6 +186,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
 
         if is_single_file:
             summary_common_b_parties_str = "N/A (Single File Uploaded)"
+            extracted_common_numbers = []
         else:
             extracted_common_numbers = [num for num, src in number_source_map.items() if len(src) > 1]
             summary_common_b_parties_str = ", ".join(extracted_common_numbers) if extracted_common_numbers else "None"
@@ -218,10 +219,10 @@ def process_cdr_data(file_paths, intended_location, output_dir):
         original_cols = list(combined_df.columns[0:13])
         address_col_name = original_cols[11]
         original_cols[4] = "Total Call Duration (Mins)"
-        
+
         first_part_cols = original_cols[0:11]
         remaining_cols = [original_cols[12]]
-        
+
         if is_single_file:
             final_cols = first_part_cols + ["Frequency"] + remaining_cols + [address_col_name]
             filtered_df.columns = original_cols + ["Frequency", "Has_Multiple_IMEI"]
@@ -230,7 +231,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             final_cols = first_part_cols + ["Frequency", "Common?"] + remaining_cols + [address_col_name]
             filtered_df.columns = original_cols + ["Frequency", "Common?", "Has_Multiple_IMEI"]
             common_status_list = filtered_df["Common?"].tolist()
-        
+
         filtered_df = filtered_df[final_cols]
         filtered_df = filtered_df.astype(str).replace('nan', '')
 
@@ -258,12 +259,12 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 ]
             }
             pd.DataFrame(vertical_summary_data).to_excel(writer, sheet_name="Intelligence_Summary", index=False)
-            
+
             ws_sum = writer.sheets["Intelligence_Summary"]
             ws_sum.row_dimensions[1].height = 28
             header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True, size=11)
-            
+
             for col_idx in range(1, 3):
                 cell = ws_sum.cell(row=1, column=col_idx)
                 cell.fill, cell.font, cell.alignment = header_fill, header_font, Alignment(horizontal="center", vertical="center")
@@ -285,7 +286,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             day_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
             common_fill = PatternFill(start_color="10024f", end_color="10024f", fill_type="solid")
             common_font = Font(color="FFD700", bold=True)
-            
+
             palette_pool = [
                 {"bg": "E8F8F5", "fg": "117A65"}, {"bg": "FEF9E7", "fg": "B7950B"},
                 {"bg": "EBF5FB", "fg": "1F618D"}, {"bg": "F5EEF8", "fg": "6C3483"},
@@ -302,7 +303,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 worksheet.row_dimensions[row_idx].height = 20
                 is_row_common = (common_status_list[row_idx - 2] == "Yes") if not is_single_file else False
                 current_row_imei = row_imei_strings[row_idx - 2]
-                
+
                 for col_idx in range(1, len(final_cols) + 1):
                     cell = worksheet.cell(row=row_idx, column=col_idx)
                     cell.number_format = "@"
@@ -310,10 +311,10 @@ def process_cdr_data(file_paths, intended_location, output_dir):
 
                     if pd.notnull(current_time):
                         cell.fill = night_fill if (current_time.hour >= 18 or current_time.hour < 6) else day_fill
-                    
+
                     if not is_single_file and is_row_common and col_idx == common_col_idx:
                         cell.fill, cell.font = common_fill, common_font
-                    
+
                     if col_idx == imei_col_idx and current_row_imei in imei_style_map:
                         assigned_style = imei_style_map[current_row_imei]
                         cell.fill = PatternFill(start_color=assigned_style["bg"], end_color=assigned_style["bg"], fill_type="solid")
@@ -323,6 +324,38 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     ws.column_dimensions[col[0].column_letter].width = max(max_len + 4, 12)
+
+        # ============================================================
+        # NEW LINK ANALYSIS JSON STRUCTURE
+        # ============================================================
+        # Prepare Link Analysis Data (Hub and Spoke Model)
+        # centers: [a1, a2...]
+        # uncommon-links: [{source: a1, target-links: [b1, b2...]}, ...]
+        # common-links: [{target: cb1, source: [a1, a2...]}, ...]
+        
+        common_nums = set(extracted_common_numbers) if not is_single_file else set()
+        
+        uncommon_links_map = {a: [] for a in unique_a_parties}
+        common_links_map = {} # {common_b: [a1, a2, ...]}
+        
+        for _, row in filtered_df.iterrows():
+            a_party = str(row[col_C])
+            b_party = str(row[col_D])
+            
+            if b_party in common_nums:
+                if b_party not in common_links_map:
+                    common_links_map[b_party] = set()
+                common_links_map[b_party].add(a_party)
+            else:
+                if b_party not in uncommon_links_map[a_party]:
+                    uncommon_links_map[a_party].append(b_party)
+        
+        graph_data_json = json.dumps({
+            "centers": unique_a_parties,
+            "uncommon-links": [{"source": a, "target-links": targets} for a, targets in uncommon_links_map.items()],
+            "common-links": [{"target": cb, "source": list(srcs)} for cb, srcs in common_links_map.items()]
+        }, ensure_ascii=False)
+        # ============================================================
 
         return {
             "status": "success",
@@ -335,7 +368,8 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 "imei_swappers": summary_imei_swappers_str,
                 "multi_sim": summary_multi_sim_str,
                 "night_routine": summary_night_routine_str,
-                "preview_rows": preview_data
+                "preview_rows": preview_data,
+                "graph_data": graph_data_json
             }
         }
 
@@ -348,7 +382,7 @@ if __name__ == "__main__":
     try:
         with open("task_input.json", "r") as f:
             task = json.load(f)
-        
+
         result_payload = process_cdr_data(
             file_paths=task["file_paths"],
             intended_location=task["intended_location"],
@@ -441,7 +475,7 @@ def search_cdr_data(file_paths, search_query):
 
             # 1. Build mask with high precision
             # We separate Phone Number columns from general columns to avoid substring false positives
-            
+
             # Mask for general columns (Location, Date, IMEI, etc.)
             other_cols = [c for c in combined_df.columns if c not in phone_cols and not str(c).startswith('_internal_')]
             general_mask = combined_df[other_cols].astype(str).apply(
