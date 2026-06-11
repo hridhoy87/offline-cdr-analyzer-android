@@ -24,7 +24,7 @@
                 android:paddingStart="20dp"
                 android:paddingEnd="20dp"
                 android:paddingBottom="20dp"
-                android:paddingTop="48dp">
+                android:paddingTop="24dp">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -33,7 +33,7 @@
                     android:textSize="22sp"
                     android:textStyle="bold"
                     android:textColor="?attr/primaryTextColor"
-                    android:layout_marginBottom="20dp"/>
+                    android:layout_marginBottom="12dp"/>
 
         <TextView
             android:layout_width="wrap_content"
@@ -54,7 +54,7 @@
             android:backgroundTint="?attr/inputBackgroundColor"
             android:background="@android:drawable/editbox_background"
             android:padding="12dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="12dp"
             android:textSize="14sp"/>
 
         <Button
@@ -65,13 +65,13 @@
             android:backgroundTint="#2C3E50"
             android:textColor="#FFFFFF"
             android:textAllCaps="false"
-            android:layout_marginBottom="12dp"/>
+            android:layout_marginBottom="8dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="20dp"
+            android:layout_marginBottom="12dp"
             android:weightSum="2">
 
             <Button
@@ -139,7 +139,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="📊 Intelligence Summary"
+                    android:text="@string/summary_header_title"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:textColor="?attr/primaryTextColor"/>
@@ -202,11 +202,15 @@
                 android:layout_marginBottom="16dp">
 
                 <LinearLayout
+                    android:id="@+id/summaryCardContent"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:padding="16dp"
-                    android:background="?attr/cardBackgroundColorCustom">
+                    android:background="?attr/cardBackgroundColorCustom"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:foreground="?android:attr/selectableItemBackground">
 
                     <TextView
                         android:id="@+id/summaryAParties"
@@ -245,6 +249,14 @@
 
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
+
+            <!-- Temporal Heatmaps -->
+            <LinearLayout
+                android:id="@+id/heatmapContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="16dp" />
 
             <!-- Alert Badges -->
             <TextView
@@ -319,7 +331,7 @@
             android:id="@+id/statusText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Select files to begin."
+            android:text="@string/select_files_to_begin"
             android:textColor="?attr/secondaryTextColor"
             android:textSize="16sp"
             android:layout_marginTop="10dp"
@@ -328,7 +340,8 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Developed by Maj Asad"
+            android:id="@+id/devloper"
+            android:text="@string/developer_name"
             android:textColor="#A0AEC0"
             android:textSize="11sp"
             android:textStyle="italic"
@@ -344,7 +357,7 @@
             android:layout_width="48dp"
             android:layout_height="48dp"
             android:layout_gravity="top|end"
-            android:layout_marginTop="32dp"
+            android:layout_marginTop="16dp"
             android:layout_marginEnd="8dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="Menu"

@@ -1,9 +1,15 @@
-import io
+"""
+Lines 1-8: core dependencies for data processing (pandas, openpyxl) and JSON serialization.
+Lines 10-218: process_cdr_data -> Main engine that parses Excel files, cleans phone numbers, 
+               calculates behavioral metrics (night stays, IMEI swaps, multi-SIM), 
+               generates the styled intelligence report, and builds the 3D link analysis JSON.
+Lines 220-252: Internal entry point and script lifecycle handlers for direct execution.
+Lines 254-385: search_cdr_data -> Global cross-column search engine that handles regex matching 
+               for phone numbers and general terms across all staged dataframes.
+"""
 import os
-import sys
 import json
 import string
-import numpy as np
 import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment
 import time
@@ -14,13 +20,11 @@ def process_cdr_data(file_paths, intended_location, output_dir):
     Saves the final spreadsheet and a summary json metadata file.
     """
     try:
-        # file_paths is now passed as a native Python list from Java array
         if not file_paths:
             return {"status": "error", "message": "No files selected."}
 
         all_dataframes = []
         number_source_map = {}
-        # Ensure we have a list for length check
         is_single_file = (len(list(file_paths)) == 1)
 
         def clean_phone_number(val):
@@ -29,10 +33,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 val_str = val_str[3:]
             elif val_str.startswith('88'):
                 val_str = val_str[2:]
-
-            # Keep only numeric characters
             val_str = "".join(c for c in val_str if c.isdigit())
-
             if val_str in ['nan', 'None', '']:
                 return ''
             return val_str
@@ -43,13 +44,11 @@ def process_cdr_data(file_paths, intended_location, output_dir):
 
             filename = os.path.basename(path)
             try:
-                # Use openpyxl explicitly and check for data
                 excel_file = pd.ExcelFile(path, engine="openpyxl")
                 first_sheet_name = excel_file.sheet_names[0]
                 df = excel_file.parse(sheet_name=first_sheet_name)
 
                 if df is not None and not df.empty:
-                    # Map filename for cross-reference logic
                     cols = df.columns
                     if len(cols) >= 4:
                         col_D_name = cols[3]
@@ -145,13 +144,10 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             valid_locations = valid_locations[valid_locations != '']
 
             if not valid_locations.empty:
-                # Get Top 5 locations by frequency
                 top_locations = valid_locations.value_counts().head(5)
-
                 for i, (addr_text, count) in enumerate(top_locations.items()):
                     matching_records = raw_night_df[raw_night_df[col_L] == addr_text]
                     tower_grouping = matching_records.groupby([col_H, col_I]).size().reset_index(name='count').sort_values(by='count', ascending=False)
-
                     if not tower_grouping.empty:
                         top_tower = tower_grouping.iloc[0]
                         lac_val, cell_id_val = str(top_tower[col_H]).strip(), str(top_tower[col_I]).strip()
@@ -159,9 +155,7 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                         cell_info = f"Cell ID: {cell_id_val}" if cell_id_val and cell_id_val != 'nan' else "Cell ID: N/A"
                         night_stays_list.append(f"{addr_text} [{lac_info}, {cell_info}]")
 
-        # Prepare display string for metrics
         summary_night_stays_str = " | ".join(night_stays_list) if night_stays_list else "Unknown / Insufficient Data"
-
         deep_night_pct = round((deep_night_ops_count / total_valid_times) * 100, 1) if total_valid_times > 0 else 0
         summary_night_routine_str = f"Deep Night Critical Windows: {deep_night_pct}% of total actions trigger between 01:00 AM and 04:00 AM."
 
@@ -192,20 +186,28 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             summary_common_b_parties_str = ", ".join(extracted_common_numbers) if extracted_common_numbers else "None"
             filtered_df["Common?"] = filtered_df[col_D].apply(lambda x: "Yes" if x in extracted_common_numbers else "No")
 
-        row_imei_strings = filtered_df[col_J].tolist()
         filtered_df["Has_Multiple_IMEI"] = filtered_df[col_C].apply(lambda x: "Yes" if target_imei_counts.get(x, 0) >= 3 else "No")
-
         filtered_df = filtered_df.drop_duplicates(subset=[col_D], keep="first")
         filtered_df[col_A] = safe_datetime_parser(filtered_df[col_A])
         filtered_df = filtered_df.sort_values(by=["Frequency", col_A], ascending=[False, False])
-
         timestamps = filtered_df[col_A].tolist()
         filtered_df[col_A] = filtered_df[col_A].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notnull(x) else "")
 
-        top_contacts_list = filtered_df[col_D].head(10).tolist()
-        summary_top_three_str = ", ".join(top_contacts_list) if top_contacts_list else "None"
+        top_b_parties_data = []
+        top_df = filtered_df.head(10)
+        for _, row in top_df.iterrows():
+            top_b_parties_data.append({
+                "b_party": str(row[col_D]),
+                "frequency": str(row["Frequency"]),
+                "last_called": str(row[col_A])
+            })
 
-        # Prepare Preview Data for "Take a Peek" table (Top 50 records)
+        if col_L in combined_df.columns:
+            area_counts = combined_df[col_L].value_counts().head(12).to_dict()
+            area_clusters = [{"area": str(k), "count": int(v)} for k, v in area_counts.items() if str(k).strip() != '' and str(k).lower() != 'nan']
+        else:
+            area_clusters = []
+
         preview_data = []
         preview_df = filtered_df.head(50)
         for _, row in preview_df.iterrows():
@@ -216,10 +218,17 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 "loc": str(row[col_L])
             })
 
+        # Calculate Temporal Heatmap data for each A-party
+        hourly_activity = {}
+        for a_p in unique_a_parties:
+            a_df = combined_df[combined_df[col_C] == a_p].copy()
+            a_df['hour'] = pd.to_datetime(a_df[col_A], errors='coerce').dt.hour
+            dist = a_df['hour'].value_counts().reindex(range(24), fill_value=0).to_dict()
+            hourly_activity[a_p] = {str(h): int(v) for h, v in dist.items()}
+
         original_cols = list(combined_df.columns[0:13])
         address_col_name = original_cols[11]
         original_cols[4] = "Total Call Duration (Mins)"
-
         first_part_cols = original_cols[0:11]
         remaining_cols = [original_cols[12]]
 
@@ -234,16 +243,15 @@ def process_cdr_data(file_paths, intended_location, output_dir):
 
         filtered_df = filtered_df[final_cols]
         filtered_df = filtered_df.astype(str).replace('nan', '')
-
         imei_col_idx = final_cols.index(col_J) + 1
         common_col_idx = final_cols.index("Common?") + 1 if "Common?" in final_cols else -1
 
-        # Dynamic Filename Generation: <AParty>-CDR-Processed-<Date,Time>
         primary_a_party = unique_a_parties[0] if unique_a_parties else "Unknown"
         timestamp_str = time.strftime("%Y%m%d_%H%M%S")
         safe_a_party = "".join(c for c in primary_a_party if c.isalnum())
         output_filename = f"{safe_a_party}-CDR-Processed-{timestamp_str}.xlsx"
         output_excel_path = os.path.join(output_dir, output_filename)
+        summary_top_b_parties_excel = ", ".join([item["b_party"] for item in top_b_parties_data])
 
         with pd.ExcelWriter(output_excel_path, engine="openpyxl") as writer:
             vertical_summary_data = {
@@ -254,21 +262,18 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                     "Deep Night Target Critical Windows (0100-0400)"
                 ],
                 "Core Intelligence Value / Flag Operational Status": [
-                    summary_a_parties_str, summary_top_three_str, summary_night_stays_str,
+                    summary_a_parties_str, summary_top_b_parties_excel, summary_night_stays_str,
                     summary_common_b_parties_str, summary_imei_swappers_str, summary_multi_sim_str, summary_night_routine_str
                 ]
             }
             pd.DataFrame(vertical_summary_data).to_excel(writer, sheet_name="Intelligence_Summary", index=False)
-
             ws_sum = writer.sheets["Intelligence_Summary"]
             ws_sum.row_dimensions[1].height = 28
             header_fill = PatternFill(start_color="2C3E50", end_color="2C3E50", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True, size=11)
-
             for col_idx in range(1, 3):
                 cell = ws_sum.cell(row=1, column=col_idx)
                 cell.fill, cell.font, cell.alignment = header_fill, header_font, Alignment(horizontal="center", vertical="center")
-
             for row in ws_sum.iter_rows(min_row=2, max_row=8, min_col=1, max_col=2):
                 ws_sum.row_dimensions[row[0].row].height = 22
                 for cell in row:
@@ -277,7 +282,6 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             filtered_df.to_excel(writer, sheet_name="Combined_Filtered_Data", index=False)
             worksheet = writer.sheets["Combined_Filtered_Data"]
             worksheet.row_dimensions[1].height = 26
-
             for col_idx in range(1, len(final_cols) + 1):
                 header_cell = worksheet.cell(row=1, column=col_idx)
                 header_cell.fill, header_cell.font, header_cell.alignment = header_fill, header_font, Alignment(horizontal="center", vertical="center")
@@ -286,14 +290,10 @@ def process_cdr_data(file_paths, intended_location, output_dir):
             day_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
             common_fill = PatternFill(start_color="10024f", end_color="10024f", fill_type="solid")
             common_font = Font(color="FFD700", bold=True)
-
-            palette_pool = [
-                {"bg": "E8F8F5", "fg": "117A65"}, {"bg": "FEF9E7", "fg": "B7950B"},
-                {"bg": "EBF5FB", "fg": "1F618D"}, {"bg": "F5EEF8", "fg": "6C3483"},
-                {"bg": "FBEEE6", "fg": "A04000"}, {"bg": "EAF2F8", "fg": "2471A3"}
-            ]
+            palette_pool = [{"bg": "E8F8F5", "fg": "117A65"}, {"bg": "FEF9E7", "fg": "B7950B"}, {"bg": "EBF5FB", "fg": "1F618D"}, {"bg": "F5EEF8", "fg": "6C3483"}, {"bg": "FBEEE6", "fg": "A04000"}, {"bg": "EAF2F8", "fg": "2471A3"}]
             imei_style_map = {}
             u_idx = 0
+            row_imei_strings = filtered_df[col_J].tolist()
             for imei_val in [i for i in row_imei_strings if i != '']:
                 if imei_val not in imei_style_map:
                     imei_style_map[imei_val] = palette_pool[u_idx % len(palette_pool)]
@@ -303,100 +303,66 @@ def process_cdr_data(file_paths, intended_location, output_dir):
                 worksheet.row_dimensions[row_idx].height = 20
                 is_row_common = (common_status_list[row_idx - 2] == "Yes") if not is_single_file else False
                 current_row_imei = row_imei_strings[row_idx - 2]
-
                 for col_idx in range(1, len(final_cols) + 1):
                     cell = worksheet.cell(row=row_idx, column=col_idx)
                     cell.number_format = "@"
                     cell.alignment = Alignment(vertical="center")
-
                     if pd.notnull(current_time):
                         cell.fill = night_fill if (current_time.hour >= 18 or current_time.hour < 6) else day_fill
-
                     if not is_single_file and is_row_common and col_idx == common_col_idx:
                         cell.fill, cell.font = common_fill, common_font
-
                     if col_idx == imei_col_idx and current_row_imei in imei_style_map:
                         assigned_style = imei_style_map[current_row_imei]
                         cell.fill = PatternFill(start_color=assigned_style["bg"], end_color=assigned_style["bg"], fill_type="solid")
                         cell.font = Font(color=assigned_style["fg"], bold=True)
-
             for ws in [ws_sum, worksheet]:
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     ws.column_dimensions[col[0].column_letter].width = max(max_len + 4, 12)
 
-        # ============================================================
-        # NEW LINK ANALYSIS JSON STRUCTURE
-        # ============================================================
-        # Prepare Link Analysis Data (Hub and Spoke Model)
-        # centers: [a1, a2...]
-        # uncommon-links: [{source: a1, target-links: [b1, b2...]}, ...]
-        # common-links: [{target: cb1, source: [a1, a2...]}, ...]
-        
         common_nums = set(extracted_common_numbers) if not is_single_file else set()
-        
+        a_party_areas = combined_df.groupby(col_C)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
+        b_party_areas = combined_df.groupby(col_D)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
+        all_party_areas = {**a_party_areas, **b_party_areas}
         uncommon_links_map = {a: [] for a in unique_a_parties}
-        common_links_map = {} # {common_b: [a1, a2, ...]}
-        
+        common_links_map = {} 
         for _, row in filtered_df.iterrows():
-            a_party = str(row[col_C])
-            b_party = str(row[col_D])
-            
+            a_party, b_party = str(row[col_C]), str(row[col_D])
             if b_party in common_nums:
-                if b_party not in common_links_map:
-                    common_links_map[b_party] = set()
+                if b_party not in common_links_map: common_links_map[b_party] = set()
                 common_links_map[b_party].add(a_party)
             else:
-                if b_party not in uncommon_links_map[a_party]:
-                    uncommon_links_map[a_party].append(b_party)
+                if b_party not in uncommon_links_map[a_party]: uncommon_links_map[a_party].append(b_party)
         
         graph_data_json = json.dumps({
             "centers": unique_a_parties,
             "uncommon-links": [{"source": a, "target-links": targets} for a, targets in uncommon_links_map.items()],
-            "common-links": [{"target": cb, "source": list(srcs)} for cb, srcs in common_links_map.items()]
+            "common-links": [{"target": cb, "source": list(srcs)} for cb, srcs in common_links_map.items()],
+            "area_clusters": area_clusters,
+            "all_party_areas": all_party_areas
         }, ensure_ascii=False)
-        # ============================================================
 
         return {
-            "status": "success",
-            "output_path": output_excel_path,
+            "status": "success", "output_path": output_excel_path,
             "metrics": {
-                "a_parties": summary_a_parties_str,
-                "top_three": summary_top_three_str,
-                "night_stays": summary_night_stays_str,
-                "common_b_parties": summary_common_b_parties_str,
-                "imei_swappers": summary_imei_swappers_str,
-                "multi_sim": summary_multi_sim_str,
-                "night_routine": summary_night_routine_str,
-                "preview_rows": preview_data,
-                "graph_data": graph_data_json
+                "a_parties": summary_a_parties_str, "top_b_parties": top_b_parties_data,
+                "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_parties_str,
+                "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str,
+                "night_routine": summary_night_routine_str, "area_clusters": area_clusters,
+                "hourly_activity": hourly_activity,
+                "preview_rows": preview_data, "graph_data": graph_data_json
             }
         }
-
     except Exception as e:
         return {"status": "error", "message": f"Engine calculation failure: {str(e)}"}
 
 if __name__ == "__main__":
-    # SeriousPython passes parameters safely through JSON files or basic script strings
-    # Read operational instruction inputs from local app configuration JSON files
     try:
-        with open("task_input.json", "r") as f:
-            task = json.load(f)
-
-        result_payload = process_cdr_data(
-            file_paths=task["file_paths"],
-            intended_location=task["intended_location"],
-            output_dir=task["output_dir"]
-        )
+        with open("task_input.json", "r") as f: task = json.load(f)
+        result_payload = process_cdr_data(file_paths=task["file_paths"], intended_location=task["intended_location"], output_dir=task["output_dir"])
     except Exception as err:
         result_payload = {"status": "error", "message": f"Lifecycle failure: {str(err)}"}
-
-    # Write output back down to disk file for Dart to instantly read
-    with open("task_output.json", "w") as f:
-        json.dump(result_payload, f)
-
-    # --- ADD THIS TO PREVENT THE SCRIPT FROM EXITING PREMATURELY ---
-    # Keep the process context alive for 5 seconds so Dart finishes file operations
+    with open("task_output.json", "w") as f: json.dump(result_payload, f)
     time.sleep(5)
 
 def search_cdr_data(file_paths, search_query):
@@ -405,150 +371,64 @@ def search_cdr_data(file_paths, search_query):
     Generates structured, human-readable summaries designed for an Android UI Dialog.
     """
     try:
-        if file_paths is None:
-            return {"status": "error", "message": "No files selected."}
-
-        # Safely handle Java array/list wrapping from Chaquopy
+        if file_paths is None: return {"status": "error", "message": "No files selected."}
         safe_paths = [str(p) for p in file_paths]
         search_terms = [s.strip() for s in str(search_query).split(",") if s.strip()]
-
-        if not search_terms:
-            return {"status": "error", "message": "No search queries provided."}
+        if not search_terms: return {"status": "error", "message": "No search queries provided."}
 
         def clean_num(val):
-            if pd.isna(val):
-                return ''
+            if pd.isna(val): return ''
             val_str = str(val).strip().split('.')[0]
             if val_str.startswith('+88'): val_str = val_str[3:]
             elif val_str.startswith('88'): val_str = val_str[2:]
-            val_str = "".join(c for c in val_str if c.isdigit())
-            return val_str
+            return "".join(c for c in val_str if c.isdigit())
 
         all_dataframes = []
-
         for path in safe_paths:
-            if not os.path.exists(path):
-                continue
+            if not os.path.exists(path): continue
             try:
                 excel_file = pd.ExcelFile(path, engine="openpyxl")
                 df = excel_file.parse(sheet_name=excel_file.sheet_names[0])
-                if df.empty:
-                    continue
-
+                if df.empty: continue
                 cols = df.columns
-                if len(cols) < 12:
-                    continue
-
-                col_A_name = cols[0]  # Date/Time
-                col_C_name = cols[2]  # A Party Number
-                col_L_name = cols[11] # Location Address
-
-                # Clean target A-Party to identify ownership context
+                if len(cols) < 12: continue
+                col_A_name, col_C_name, col_L_name = cols[0], cols[2], cols[11]
                 df_clean_temp = df[col_C_name].apply(clean_num)
                 a_parties = [num for num in df_clean_temp.unique() if num and num != 'nan']
                 a_party = a_parties[0] if a_parties else "Unknown"
-
-                # Create uniform hidden backup tracking pointers
-                df['_internal_a_party'] = a_party
-                df['_internal_time'] = pd.to_datetime(df[col_A_name], errors='coerce')
-                df['_internal_loc'] = df[col_L_name].fillna('').astype(str).str.strip()
-
+                df['_internal_a_party'], df['_internal_time'], df['_internal_loc'] = a_party, pd.to_datetime(df[col_A_name], errors='coerce'), df[col_L_name].fillna('').astype(str).str.strip()
                 all_dataframes.append(df)
-            except:
-                continue
+            except: continue
 
-        if not all_dataframes:
-            return {"status": "error", "message": "Could not extract or compile data from target sources."}
-
+        if not all_dataframes: return {"status": "error", "message": "Could not extract or compile data from target sources."}
         combined_df = pd.concat(all_dataframes, ignore_index=True)
-        dialog_lines = []
-
-        # Identify phone number columns for special handling
-        # Usually Col 2 (A Party) and Col 3 (B Party) in RAB CDRs
-        cols = combined_df.columns
-        phone_cols = [cols[2], cols[3]] if len(cols) > 3 else []
+        dialog_lines, phone_cols = [], [combined_df.columns[2], combined_df.columns[3]] if len(combined_df.columns) > 3 else []
 
         for term_idx, term in enumerate(search_terms):
-            prefix = string.ascii_lowercase[term_idx % 26] + ". "
-            clean_term = clean_num(term)
+            prefix, clean_term = string.ascii_lowercase[term_idx % 26] + ". ", clean_num(term)
             is_numeric_term = clean_term.isdigit() and len(clean_term) > 0
-
-            # 1. Build mask with high precision
-            # We separate Phone Number columns from general columns to avoid substring false positives
-
-            # Mask for general columns (Location, Date, IMEI, etc.)
             other_cols = [c for c in combined_df.columns if c not in phone_cols and not str(c).startswith('_internal_')]
-            general_mask = combined_df[other_cols].astype(str).apply(
-                lambda col: col.str.contains(term, case=False, na=False)
-            ).any(axis=1)
-
-            # Mask for phone columns (A/B Party)
-            # If the term is numeric, we do strict comparison to avoid "123" matching "017...123...00"
+            general_mask = combined_df[other_cols].astype(str).apply(lambda col: col.str.contains(term, case=False, na=False)).any(axis=1)
             phone_mask = pd.Series(False, index=combined_df.index)
             for p_col in phone_cols:
                 col_series = combined_df[p_col].astype(str).apply(clean_num)
                 if is_numeric_term:
-                    if len(clean_term) >= 11:
-                        # Exact match for full numbers
-                        phone_mask |= (col_series == clean_term)
-                    else:
-                        # Suffix match for partial numbers (e.g. last 5 digits) 
-                        # or exact match for short codes
-                        phone_mask |= (col_series.str.endswith(clean_term) | (col_series == clean_term))
+                    phone_mask |= (col_series == clean_term) if len(clean_term) >= 11 else (col_series.str.endswith(clean_term) | (col_series == clean_term))
                 else:
-                    # Non-numeric search in phone columns (rare, but handle just in case)
                     phone_mask |= combined_df[p_col].astype(str).str.contains(term, case=False, na=False)
-
-            term_mask = general_mask | phone_mask
-            match_df = combined_df[term_mask]
-
-            # Scenario A: Term was completely absent
+            match_df = combined_df[general_mask | phone_mask]
             if match_df.empty:
                 dialog_lines.append(f"<b>{prefix}Not Found in any of the CDR(s)</b> ({term})")
                 continue
-
-            # Extract tracking fields
             found_a_parties = sorted(list(set(match_df['_internal_a_party'].astype(str).tolist())))
-            a_parties_str = ", ".join(found_a_parties)
-            freq = len(match_df)
-
-            # Build breakdown view block using HTML for bolding in Android
-            line_header = f"<b>{prefix}{term} was found in {a_parties_str} CDR</b>"
-
-            # Metrics: Time
+            freq, time_info = len(match_df), "N/A"
             hours = match_df['_internal_time'].dt.hour.dropna().value_counts().head(2)
-            if not hours.empty:
-                time_strings = [f"{int(h):02d}:00" for h in hours.index]
-                time_info = " and ".join(time_strings) + " hours"
-            else:
-                time_info = "N/A"
-
-            # Metrics: Locations
-            locs = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3)
+            if not hours.empty: time_info = " and ".join([f"{int(h):02d}:00" for h in hours.index]) + " hours"
+            locs, loc_info_html = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3), " N/A"
             if not locs.empty:
-                loc_list = locs.index.astype(str).tolist()
                 loc_info_html = "<br>"
-                for i, l in enumerate(loc_list):
-                    prefix_loc = string.ascii_lowercase[i % 26] + ". "
-                    loc_info_html += f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{prefix_loc}{l}<br>"
-            else:
-                loc_info_html = " N/A"
-
-            block = (
-                f"{line_header}<br>"
-                f"&nbsp;&nbsp;&nbsp;(i) Frequency: {freq} times<br>"
-                f"&nbsp;&nbsp;&nbsp;(ii) Time: Mostly around {time_info}<br>"
-                f"&nbsp;&nbsp;&nbsp;(iii) Location: Mostly in{loc_info_html}"
-            )
-            dialog_lines.append(block)
-
-        # Join with double line breaks
-        final_summary_html = "<br><br>".join(dialog_lines)
-
-        return {
-            "status": "success",
-            "summary_html": final_summary_html
-        }
-
+                for i, l in enumerate(locs.index.astype(str).tolist()): loc_info_html += f"&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{string.ascii_lowercase[i % 26]}. {l}<br>"
+            dialog_lines.append(f"<b>{prefix}{term} was found in {', '.join(found_a_parties)} CDR</b><br>&nbsp;&nbsp;&nbsp;(i) Frequency: {freq} times<br>&nbsp;&nbsp;&nbsp;(ii) Time: Mostly around {time_info}<br>&nbsp;&nbsp;&nbsp;(iii) Location: Mostly in{loc_info_html}")
+        return {"status": "success", "summary_html": "<br><br>".join(dialog_lines)}
     except Exception as e:
         return {"status": "error", "message": f"Global Search failure: {str(e)}"}

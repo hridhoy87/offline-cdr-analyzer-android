@@ -4,29 +4,40 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { margin: 0; overflow: hidden; background-color: #f8f9fa; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #0d1117; font-family: sans-serif; }
         #graph-container { width: 100vw; height: 100vh; }
 
-        /* Style the tooltip to be high contrast */
         .scene-tooltip {
-            color: #000000 !important;
-            background: rgba(255, 255, 255, 0.95) !important;
-            padding: 4px 10px !important;
-            border-radius: 4px !important;
-            border: 1px solid #333 !important;
-            font-size: 14px !important;
-            font-weight: bold !important;
+            color: #ffffff !important;
+            background: rgba(22, 27, 34, 0.9) !important;
+            padding: 8px 12px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            border: 1px solid #30363d !important;
         }
 
         .legend {
-            position: absolute; bottom: 10px; left: 10px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 8px; border-radius: 6px;
-            font-size: 10px; color: #333;
-            border: 1px solid #ccc; z-index: 100;
+            position: absolute; top: 12px; right: 12px;
+            background: rgba(13, 17, 23, 0.85);
+            padding: 12px; border-radius: 10px;
+            font-size: 11px; color: #c9d1d9;
+            border: 1px solid #30363d; z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
             pointer-events: none;
         }
-        .legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+        .legend-item { display: flex; align-items: center; margin-bottom: 6px; }
+        .legend-dot { width: 10px; height: 10px; border-radius: 50%; margin-right: 10px; }
+
+        .profile-overlay {
+            position: absolute; bottom: 20px; left: 20px; z-index: 1001;
+            background: rgba(13, 17, 23, 0.95); padding: 15px; border-radius: 10px;
+            border: 1px solid #30363d; display: none; color: #f0f6fc;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); font-size: 13px; min-width: 200px;
+        }
+        .profile-title { color: #58a6ff; font-weight: bold; font-size: 15px; margin-bottom: 10px; border-bottom: 1px solid #30363d; padding-bottom: 5px; }
+        .profile-row { margin-bottom: 5px; }
+        .profile-label { color: #8b949e; }
+        .close-profile { float: right; cursor: pointer; color: #ff4d4d; font-weight: bold; }
     </style>
     <script src="three.min.js"></script>
     <script src="3d-force-graph.min.js"></script>
@@ -35,46 +46,76 @@
 
 <div id="graph-container"></div>
 
+<div id="profile" class="profile-overlay">
+    <span class="close-profile" onclick="document.getElementById('profile').style.display='none'">X</span>
+    <div id="profile-content"></div>
+</div>
+
 <div class="legend">
-    <strong>Molecular Link Model</strong><br>
-    <span class="legend-dot" style="background:#3182CE"></span> A-Party <br>
-    <span class="legend-dot" style="background:#E53E3E"></span> Common B <br>
-    <span class="legend-dot" style="background:#718096"></span> Uncommon B
+    <strong style="color:#f0f6fc">Link Correlation Model</strong><br><br>
+    <div class="legend-item"><span class="legend-dot" style="background:#3182CE"></span> A-Party</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#E53E3E"></span> Common B</div>
+    <div class="legend-item"><span class="legend-dot" style="background:#718096"></span> Uncommon B</div>
 </div>
 
 <script>
     const Graph = ForceGraph3D()(document.getElementById('graph-container'));
 
-    Graph.backgroundColor('#f8f9fa')
+    Graph.backgroundColor('#0d1117')
          .showNavInfo(false)
          .nodeColor(node => {
-             if (node.isCommon) return '#E53E3E'; // Red Oxygen
-             if (node.isCenter) return '#3182CE'; // Blue Hydrogen
-             return '#718096';                    // Gray Peripheral
+             if (node.isCommon) return '#E53E3E'; // Red
+             if (node.isCenter) return '#3182CE'; // Blue
+             return '#718096';                    // Gray
          })
-         .nodeVal(node => node.isCommon ? 12 : 5)  // Red nodes are larger
-         .nodeLabel(node => node.id)
+         .nodeVal(node => node.isCommon ? 12 : 5)
+         .nodeLabel(node => `<span style="color:#f0f6fc">${node.id}</span>`)
+         .onNodeClick(node => {
+             const profiles = window.lastProfiles || {};
+             const profile = profiles[node.id];
+             const el = document.getElementById('profile');
+             const content = document.getElementById('profile-content');
 
-         // Visiblity Fix for Links
-         .linkColor(link => link.isCommonLink ? '#000000' : '#888888') // Black for bridges
-         .linkWidth(link => link.isCommonLink ? 4 : 1)                 // Thick for bridges
+             if (profile) {
+                 el.style.display = 'block';
+                 content.innerHTML = `
+                    <div class="profile-title">📱 Profile: ${node.id}</div>
+                    <div class="profile-row"><span class="profile-label">Total Contacts:</span> ${profile.total}</div>
+                    <div class="profile-row"><span class="profile-label">First Seen:</span> ${profile.first}</div>
+                    <div class="profile-row"><span class="profile-label">Last Seen:</span> ${profile.last}</div>
+                    <div class="profile-row"><span class="profile-label">Top Location:</span><br><a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(profile.top_loc)}&travelmode=driving" target="_blank" style="color:#58a6ff; text-decoration: underline;">${profile.top_loc}</a></div>
+                 `;
+             }
+         })
+
+         // Link Styling
+         .linkColor(link => link.isCommonLink ? '#f0f6fc' : '#30363d')
+         .linkWidth(link => link.isCommonLink ? 4 : 1)
          .linkOpacity(0.9)
          .linkDirectionalParticles(link => link.isCommonLink ? 4 : 0)
          .linkDirectionalParticleWidth(3)
          .linkDirectionalParticleColor(() => '#E53E3E')
 
-         // Force setup to pull hubs together through bridges
+         // Force setup
          .d3Force('link').distance(link => link.isCommonLink ? 70 : 35)
          .d3Force('charge').strength(-120);
+
+    // Add 3D Grid
+    const gridHelper = new THREE.GridHelper(1000, 40, 0x30363d, 0x21262d);
+    gridHelper.position.y = -200;
+    gridHelper.opacity = 0.5;
+    gridHelper.transparent = true;
+    Graph.scene().add(gridHelper);
 
     function renderOfflineData(jsonString) {
         try {
             const rawData = JSON.parse(jsonString);
+            window.lastProfiles = rawData.node_profiles || {};
             const nodes = [];
             const links = [];
             const nodeSet = new Set();
 
-            // 1. A-Parties
+            // 1. A-Parties (Centers)
             if (rawData.centers) {
                 rawData.centers.forEach(id => {
                     const sid = String(id);
@@ -93,7 +134,6 @@
                         nodes.push({ id: cid, isCenter: false, isCommon: true });
                         nodeSet.add(cid);
                     }
-                    // Connection: Hub1 -- Bridge -- Hub2
                     item.source.forEach(hubId => {
                         links.push({
                             source: String(hubId),
@@ -125,7 +165,6 @@
 
             Graph.graphData({ nodes, links });
 
-            // Adjust zoom to fit
             setTimeout(() => {
                 Graph.zoomToFit(800, 100);
             }, 500);

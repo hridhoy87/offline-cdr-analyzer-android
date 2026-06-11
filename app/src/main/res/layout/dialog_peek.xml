@@ -1,50 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content"
+    android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="16dp"
     android:background="?attr/dashboardBackgroundColor">
 
-    <TextView
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="📊 Intelligence Preview (Top 50)"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:textColor="?attr/primaryTextColor"
-        android:layout_marginBottom="16dp"
-        android:gravity="center"/>
+        android:layout_marginBottom="16dp">
 
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-
-        <TableLayout
-            android:id="@+id/peekTable"
+        <TextView
+            android:id="@+id/peekTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="#2C3E50"
-            android:padding="1dp">
+            android:layout_alignParentStart="true"
+            android:layout_centerVertical="true"
+            android:layout_toStartOf="@+id/btnCopyPeek"
+            android:text="@string/peek_title"
+            android:textColor="?attr/primaryTextColor"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
-            <TableRow android:background="#2C3E50">
-                <TextView android:text=" Dt " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
-                <TextView android:text=" Bp " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
-                <TextView android:text=" Freq " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
-                <TextView android:text=" Loc " android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" android:gravity="center"/>
-            </TableRow>
+        <ImageButton
+            android:id="@+id/btnCopyPeek"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/copy_and_share"
+            android:src="@android:drawable/ic_menu_share"
+            app:tint="?attr/primaryTextColor" />
+    </RelativeLayout>
 
-            <!-- Rows will be added dynamically -->
-        </TableLayout>
-    </HorizontalScrollView>
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fadeScrollbars="false"
+        android:scrollbars="vertical">
+
+        <HorizontalScrollView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fadeScrollbars="false"
+            android:scrollbars="horizontal">
+
+            <TableLayout
+                android:id="@+id/peekTable"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="#2C3E50"
+                android:padding="1dp">
+
+                <TableRow android:background="#2C3E50">
+                    <TextView
+                        android:padding="8dp"
+                        android:gravity="center"
+                        android:text=" Dt "
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:padding="8dp"
+                        android:gravity="center"
+                        android:text=" Bp "
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:padding="8dp"
+                        android:gravity="center"
+                        android:text=" Freq "
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:padding="8dp"
+                        android:gravity="center"
+                        android:text=" Loc "
+                        android:textColor="#FFFFFF"
+                        android:textStyle="bold" />
+                </TableRow>
+
+                <!-- Rows will be added dynamically -->
+            </TableLayout>
+        </HorizontalScrollView>
+    </ScrollView>
 
     <Button
         android:id="@+id/btnClosePeek"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Close"
         android:layout_gravity="end"
         android:layout_marginTop="16dp"
-        android:textAllCaps="false"/>
+        android:text="Close"
+        android:textAllCaps="false" />
 
 </LinearLayout>
