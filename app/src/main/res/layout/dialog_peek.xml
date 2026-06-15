@@ -53,40 +53,9 @@
                 android:id="@+id/peekTable"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="#2C3E50"
-                android:padding="1dp">
+                android:padding="0dp">
 
-                <TableRow android:background="#2C3E50">
-                    <TextView
-                        android:padding="8dp"
-                        android:gravity="center"
-                        android:text=" Dt "
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:padding="8dp"
-                        android:gravity="center"
-                        android:text=" Bp "
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:padding="8dp"
-                        android:gravity="center"
-                        android:text=" Freq "
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:padding="8dp"
-                        android:gravity="center"
-                        android:text=" Loc "
-                        android:textColor="#FFFFFF"
-                        android:textStyle="bold" />
-                </TableRow>
-
-                <!-- Rows will be added dynamically -->
+                <!-- Header and Rows will be added dynamically -->
             </TableLayout>
         </HorizontalScrollView>
     </ScrollView>

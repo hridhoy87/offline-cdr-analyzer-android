@@ -19,6 +19,8 @@
 package com.example.offlinecdranalyzer;
 
 import android.app.Activity;
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -33,6 +35,10 @@ import android.text.Html;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
+import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.view.inputmethod.InputMethodManager;
@@ -42,6 +48,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.PopupMenu;
+import android.widget.ProgressBar;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
@@ -61,6 +68,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
@@ -80,13 +88,26 @@ public class MainActivity extends AppCompatActivity {
     private View summaryCardContent;
     private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
     private LinearLayout heatmapContainer;
-    private Button btnOpenReport, btnTakeAPeek, btnLinkAnalysis;
+    private Button btnOpenReport, btnTakeAPeek, btnLinkAnalysis, btnSameLocation;
     private ImageButton btnSearchCdr;
+    private View locProgressContainer;
+    private ProgressBar locProgressBar;
+    private TextView locProgressText;
+    private ImageView locLoadingIcon;
 
     private List<String> selectedFilePaths = new ArrayList<>();
     private String lastGeneratedReportPath = null;
     private String lastGraphData = null;
+    private String lastSameLocationJson = null;
     private List<Map<PyObject, PyObject>> lastPreviewRows = null;
+    
+    private Calendar filterStartCal = null;
+    private Calendar filterEndCal = null;
+
+    private Thread backgroundAnalysisThread = null;
+    private boolean isAnalysisReady = false;
+    private boolean isAnalysisRunning = false;
+    private int currentAnalysisProgress = 0;
 
     private static final long INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
     private Handler inactivityHandler = new Handler(Looper.getMainLooper());
@@ -121,7 +142,19 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN, WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        
         setContentView(R.layout.activity_main);
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            final WindowInsetsController controller = getWindow().getInsetsController();
+            if (controller != null) {
+                controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        }
 
         if (!Python.isStarted()) {
             Python.start(new AndroidPlatform(this));
@@ -149,6 +182,10 @@ public class MainActivity extends AppCompatActivity {
         badgeMultiSim = findViewById(R.id.badgeMultiSim);
         badgeNightRoutine = findViewById(R.id.badgeNightRoutine);
         heatmapContainer = findViewById(R.id.heatmapContainer);
+        locProgressContainer = findViewById(R.id.locProgressContainer);
+        locProgressBar = findViewById(R.id.locProgressBar);
+        locProgressText = findViewById(R.id.locProgressText);
+        locLoadingIcon = findViewById(R.id.locLoadingIcon);
 
         Button btnSelectFiles = findViewById(R.id.btnSelectFiles);
         Button btnProcess = findViewById(R.id.btnProcess);
@@ -156,7 +193,18 @@ public class MainActivity extends AppCompatActivity {
         btnOpenReport = findViewById(R.id.btnOpenReport);
         btnTakeAPeek = findViewById(R.id.btnTakeAPeek);
         btnLinkAnalysis = findViewById(R.id.btnLinkAnalysis);
+        btnSameLocation = findViewById(R.id.btnSameLocation);
         ImageButton btnMenu = findViewById(R.id.btnMenu);
+        Button btnCropLauncher = findViewById(R.id.btnCropLauncher);
+
+        btnSameLocation.setOnClickListener(v -> {
+            hideKeyboard(v);
+            runSameLocationAnalysis();
+        });
+
+        btnCropLauncher.setOnClickListener(v -> {
+            startActivity(new Intent(this, CropActivity.class));
+        });
 
         btnMenu.setOnClickListener(v -> {
             PopupMenu popup = new PopupMenu(MainActivity.this, v);
@@ -167,6 +215,9 @@ public class MainActivity extends AppCompatActivity {
                     return true;
                 } else if (item.getItemId() == R.id.action_update) {
                     showUpdateBanner();
+                    return true;
+                } else if (item.getItemId() == R.id.action_save_pdf) {
+                    Toast.makeText(MainActivity.this, "Save All As PDF functionality coming soon", Toast.LENGTH_SHORT).show();
                     return true;
                 }
                 return false;
@@ -182,9 +233,18 @@ public class MainActivity extends AppCompatActivity {
         btnLinkAnalysis.setOnClickListener(v -> {
             hideKeyboard(v);
             if (lastGraphData != null) {
-                Intent intent = new Intent(this, LinkAnalysisActivity.class);
-                intent.putExtra("graph_data", lastGraphData);
-                startActivity(intent);
+                try {
+                    File tempFile = new File(getCacheDir(), "link_graph_data.json");
+                    FileOutputStream fos = new FileOutputStream(tempFile);
+                    fos.write(lastGraphData.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    fos.close();
+                    
+                    Intent intent = new Intent(this, LinkAnalysisActivity.class);
+                    intent.putExtra("graph_data_path", tempFile.getAbsolutePath());
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Error preparing graph data: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
             }
         });
 
@@ -205,7 +265,11 @@ public class MainActivity extends AppCompatActivity {
         });
 
         mainScrollView.getViewTreeObserver().addOnScrollChangedListener(() -> {
-            swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
+            if (loadingContainer.getVisibility() != View.VISIBLE) {
+                swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
+            } else {
+                swipeRefreshLayout.setEnabled(false);
+            }
         });
 
         btnRefresh.setOnClickListener(v -> {
@@ -250,7 +314,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             ensureReportDirectory();
-            runPythonEngine();
+            showTimelineOptionDialog();
         });
 
         btnOpenReport.setOnClickListener(v -> {
@@ -258,6 +322,31 @@ public class MainActivity extends AppCompatActivity {
                 openExcelFile(lastGeneratedReportPath);
             }
         });
+
+        handleAutoProcessIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleAutoProcessIntent(intent);
+    }
+
+    private void handleAutoProcessIntent(Intent intent) {
+        if (intent != null && intent.hasExtra("auto_process_file")) {
+            String filePath = intent.getStringExtra("auto_process_file");
+            if (filePath != null) {
+                refreshAppState();
+                selectedFilePaths.clear();
+                selectedFilePaths.add(filePath);
+                statusText.setText(getString(R.string.staged_success, 1));
+                
+                filterStartCal = null;
+                filterEndCal = null;
+                runPythonEngine();
+            }
+        }
     }
 
     @Override
@@ -270,6 +359,9 @@ public class MainActivity extends AppCompatActivity {
     public boolean onOptionsItemSelected(MenuItem item) {
         if (item.getItemId() == R.id.action_about) {
             showAboutDialog();
+            return true;
+        } else if (item.getItemId() == R.id.action_save_pdf) {
+            Toast.makeText(this, "Save All As PDF functionality coming soon", Toast.LENGTH_SHORT).show();
             return true;
         }
         return super.onOptionsItemSelected(item);
@@ -306,9 +398,59 @@ public class MainActivity extends AppCompatActivity {
         if (!dir.exists()) dir.mkdirs();
     }
 
+    private void showTimelineOptionDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Timeline Analysis")
+                .setMessage("Analyze for a particular timeline?")
+                .setPositiveButton("Yes", (dialog, which) -> {
+                    filterStartCal = Calendar.getInstance();
+                    filterEndCal = Calendar.getInstance();
+                    showStartDateTimePicker();
+                })
+                .setNegativeButton("No", (dialog, which) -> {
+                    filterStartCal = null;
+                    filterEndCal = null;
+                    runPythonEngine();
+                })
+                .show();
+    }
+
+    private void showStartDateTimePicker() {
+        new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
+            filterStartCal.set(Calendar.YEAR, year);
+            filterStartCal.set(Calendar.MONTH, month);
+            filterStartCal.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+            
+            new TimePickerDialog(this, (view1, hourOfDay, minute) -> {
+                filterStartCal.set(Calendar.HOUR_OF_DAY, hourOfDay);
+                filterStartCal.set(Calendar.MINUTE, minute);
+                filterStartCal.set(Calendar.SECOND, 0);
+                showEndDateTimePicker();
+            }, filterStartCal.get(Calendar.HOUR_OF_DAY), filterStartCal.get(Calendar.MINUTE), true).show();
+            
+        }, filterStartCal.get(Calendar.YEAR), filterStartCal.get(Calendar.MONTH), filterStartCal.get(Calendar.DAY_OF_MONTH)).show();
+    }
+
+    private void showEndDateTimePicker() {
+        new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
+            filterEndCal.set(Calendar.YEAR, year);
+            filterEndCal.set(Calendar.MONTH, month);
+            filterEndCal.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+            
+            new TimePickerDialog(this, (view1, hourOfDay, minute) -> {
+                filterEndCal.set(Calendar.HOUR_OF_DAY, hourOfDay);
+                filterEndCal.set(Calendar.MINUTE, minute);
+                filterEndCal.set(Calendar.SECOND, 59);
+                runPythonEngine();
+            }, filterEndCal.get(Calendar.HOUR_OF_DAY), filterEndCal.get(Calendar.MINUTE), true).show();
+            
+        }, filterEndCal.get(Calendar.YEAR), filterEndCal.get(Calendar.MONTH), filterEndCal.get(Calendar.DAY_OF_MONTH)).show();
+    }
+
     private void runPythonEngine() {
         statusText.setText(R.string.status_processing);
         loadingContainer.setVisibility(View.VISIBLE);
+        swipeRefreshLayout.setEnabled(false);
         resultsContainer.setVisibility(View.GONE);
 
         Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
@@ -340,8 +482,16 @@ public class MainActivity extends AppCompatActivity {
                 }
                 String outputDir = reportDir.getAbsolutePath();
 
+                String startTs = null;
+                String endTs = null;
+                if (filterStartCal != null && filterEndCal != null) {
+                    SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+                    startTs = sdf.format(filterStartCal.getTime());
+                    endTs = sdf.format(filterEndCal.getTime());
+                }
+
                 String[] pathsArray = selectedFilePaths.toArray(new String[0]);
-                PyObject result = pyModule.callAttr("process_cdr_data", pathsArray, location, outputDir);
+                PyObject result = pyModule.callAttr("process_cdr_data", pathsArray, location, outputDir, startTs, endTs);
                 Map<PyObject, PyObject> resultMap = result.asMap();
                 String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
 
@@ -349,8 +499,11 @@ public class MainActivity extends AppCompatActivity {
                     loadingLogo.clearAnimation();
                     rippleEffect.clearAnimation();
                     loadingContainer.setVisibility(View.GONE);
+                    swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
                     if ("success".equals(status)) {
                         populateResults(resultMap);
+                        // Silent Background Pre-processing for Same Location Analysis
+                        startSilentSameLocationAnalysis();
                     } else {
                         statusText.setText(getString(R.string.error_prefix, resultMap.get(py.getBuiltins().get("str").call("message")).toString()));
                         statusText.setTextColor(Color.RED);
@@ -361,6 +514,7 @@ public class MainActivity extends AppCompatActivity {
                     loadingLogo.clearAnimation();
                     rippleEffect.clearAnimation();
                     loadingContainer.setVisibility(View.GONE);
+                    swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
                     statusText.setText(getString(R.string.engine_failure, e.getMessage()));
                 });
             }
@@ -436,7 +590,9 @@ public class MainActivity extends AppCompatActivity {
             badgeMultiSim.setText(multiSim.contains(getString(R.string.multi_sim_prefix)) ? "⚠️ " + multiSim : "🛡️ " + multiSim);
             badgeNightRoutine.setText("🕒 " + metrics.get(py.getBuiltins().get("str").call("night_routine")));
             lastGraphData = metrics.get(py.getBuiltins().get("str").call("graph_data")).toString();
+
             btnLinkAnalysis.setVisibility(View.VISIBLE);
+            btnSameLocation.setVisibility(View.VISIBLE);
 
             // Render Temporal Heatmaps for each A-party
             heatmapContainer.removeAllViews();
@@ -455,9 +611,118 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    private void startSilentSameLocationAnalysis() {
+        if (selectedFilePaths.isEmpty()) return;
+        
+        isAnalysisReady = false;
+        isAnalysisRunning = true;
+        currentAnalysisProgress = 0;
+        lastSameLocationJson = null;
+
+        backgroundAnalysisThread = new Thread(() -> {
+            try {
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("index");
+                String[] pathsArray = selectedFilePaths.toArray(new String[0]);
+                
+                // Define a progress callback for Python
+                ProgressListener listener = progress -> {
+                    currentAnalysisProgress = progress;
+                    runOnUiThread(() -> {
+                        if (locProgressContainer.getVisibility() == View.VISIBLE) {
+                            locProgressBar.setProgress(progress);
+                            locProgressText.setText(progress + "%");
+                            
+                            // Ensure animation is running if visible
+                            if (locLoadingIcon.getAnimation() == null) {
+                                Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
+                                locLoadingIcon.startAnimation(pulse);
+                            }
+                        }
+                    });
+                };
+
+                PyObject locResult = pyModule.callAttr("same_location_analysis", pathsArray, listener);
+                Map<PyObject, PyObject> locMap = locResult.asMap();
+                
+                PyObject pyStatus = locMap.get(py.getBuiltins().get("str").call("status"));
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
+                
+                PyObject pyData = locMap.get(py.getBuiltins().get("str").call("data"));
+                String dataJson = (pyData != null) ? pyData.toString() : "[]";
+
+                if ("success".equals(status) && dataJson.length() > 5) {
+                    File tempFile = new File(getCacheDir(), "same_loc_results.json");
+                    FileOutputStream fos = new FileOutputStream(tempFile);
+                    fos.write(dataJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    fos.close();
+                    lastSameLocationJson = tempFile.getAbsolutePath();
+                    isAnalysisReady = true;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                isAnalysisRunning = false;
+                runOnUiThread(() -> {
+                    locLoadingIcon.clearAnimation();
+                    locProgressContainer.setVisibility(View.GONE);
+                });
+            }
+        });
+        backgroundAnalysisThread.start();
+    }
+
+    // Interface for Chaquopy progress reporting
+    public interface ProgressListener {
+        void onProgress(int progress);
+    }
+
+    private void runSameLocationAnalysis() {
+        if (isAnalysisReady && lastSameLocationJson != null) {
+            // Instant Launch
+            Intent intent = new Intent(this, SameLocationActivity.class);
+            intent.putExtra("loc_json_path", lastSameLocationJson);
+            startActivity(intent);
+            return;
+        }
+
+        if (isAnalysisRunning) {
+            // Show progress indicator instead of full-screen overlay
+            locProgressContainer.setVisibility(View.VISIBLE);
+            locProgressBar.setProgress(currentAnalysisProgress);
+            locProgressText.setText(currentAnalysisProgress + "%");
+            
+            // Start the infinite animation loop
+            Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
+            locLoadingIcon.startAnimation(pulse);
+            
+            Toast.makeText(this, "Movement analysis is in progress. Please wait...", Toast.LENGTH_SHORT).show();
+            
+            // Periodically check for completion to launch activity
+            new Thread(() -> {
+                while (isAnalysisRunning) {
+                    try { Thread.sleep(500); } catch (InterruptedException ignored) { break; }
+                }
+                if (isAnalysisReady) {
+                    runOnUiThread(() -> runSameLocationAnalysis());
+                }
+            }).start();
+            return;
+        }
+
+        if (selectedFilePaths.isEmpty()) {
+            Toast.makeText(this, "No files staged.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        
+        startSilentSameLocationAnalysis();
+        runSameLocationAnalysis();
+    }
+
     private void performCdrSearch(String query) {
         statusText.setText(R.string.status_searching);
         loadingContainer.setVisibility(View.VISIBLE);
+        swipeRefreshLayout.setEnabled(false);
         Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
         complexAnim.setAnimationListener(new Animation.AnimationListener() {
             @Override public void onAnimationStart(Animation animation) {}
@@ -483,6 +748,7 @@ public class MainActivity extends AppCompatActivity {
                     loadingLogo.clearAnimation();
                     rippleEffect.clearAnimation();
                     loadingContainer.setVisibility(View.GONE);
+                    swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
                     if ("success".equals(status)) {
                         showSearchResultsDialog(resultMap.get(py.getBuiltins().get("str").call("summary_html")).toString());
                     } else {
@@ -494,6 +760,7 @@ public class MainActivity extends AppCompatActivity {
                     loadingLogo.clearAnimation();
                     rippleEffect.clearAnimation();
                     loadingContainer.setVisibility(View.GONE);
+                    swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
                     Toast.makeText(this, getString(R.string.search_engine_failure, e.getMessage()), Toast.LENGTH_LONG).show();
                 });
             }
@@ -566,38 +833,67 @@ public class MainActivity extends AppCompatActivity {
         Button btnClose = dialogView.findViewById(R.id.btnClosePeek);
         ImageButton btnCopy = dialogView.findViewById(R.id.btnCopyPeek);
         Python py = Python.getInstance();
-        PyObject strDt = py.getBuiltins().get("str").call("dt"), strBp = py.getBuiltins().get("str").call("bp"), strFreq = py.getBuiltins().get("str").call("freq"), strLoc = py.getBuiltins().get("str").call("loc");
+        PyObject strDt = py.getBuiltins().get("str").call("dt"), 
+                 strAp = py.getBuiltins().get("str").call("ap"),
+                 strBp = py.getBuiltins().get("str").call("bp"), 
+                 strFreq = py.getBuiltins().get("str").call("freq");
 
         btnCopy.setOnClickListener(v -> {
-            StringBuilder sb = new StringBuilder("Dt | Bp | Freq | Loc\n---------------------\n");
-            for (Map<PyObject, PyObject> row : lastPreviewRows) sb.append(row.get(strDt)).append(" | ").append(row.get(strBp)).append(" | ").append(row.get(strFreq)).append(" | ").append(row.get(strLoc)).append("\n");
+            StringBuilder sb = new StringBuilder("Dt | Ap | Bp | Freq\n---------------------\n");
+            for (Map<PyObject, PyObject> row : lastPreviewRows) 
+                sb.append(row.get(strDt)).append(" | ")
+                  .append(row.get(strAp)).append(" | ")
+                  .append(row.get(strBp)).append(" | ")
+                  .append(row.get(strFreq)).append("\n");
             shareText(getString(R.string.peek_share_title), sb.toString());
         });
 
+        // Add Header Row (Matching Same Location Style exactly)
+        TableRow header = new TableRow(this);
+        header.setBackgroundColor(Color.parseColor("#2C3E50"));
+        header.addView(createHeaderCell("Time"));
+        header.addView(createHeaderCell("Ap"));
+        header.addView(createHeaderCell("Bp"));
+        header.addView(createHeaderCell("Freq"));
+        tableLayout.addView(header);
+
+        int count = 0;
         for (Map<PyObject, PyObject> row : lastPreviewRows) {
             TableRow tableRow = new TableRow(this);
-            tableRow.setBackgroundColor(Color.WHITE);
+            // Alternate colors for readability
+            tableRow.setBackgroundColor(count % 2 == 0 ? Color.WHITE : Color.parseColor("#F5F5F5"));
+            
             tableRow.addView(createTableCell(row.get(strDt).toString()));
+            tableRow.addView(createTableCell(row.get(strAp).toString()));
             tableRow.addView(createTableCell(row.get(strBp).toString()));
             tableRow.addView(createTableCell(row.get(strFreq).toString()));
-            
-            String fullLoc = row.get(strLoc).toString();
-            String displayLoc = fullLoc.length() > 15 ? "..." + fullLoc.substring(fullLoc.length() - 15) : fullLoc;
-            tableRow.addView(createTableCell(displayLoc));
             tableLayout.addView(tableRow);
+            count++;
         }
         AlertDialog dialog = new AlertDialog.Builder(this).setView(dialogView).create();
         btnClose.setOnClickListener(v1 -> dialog.dismiss());
         dialog.show();
     }
 
+    private TextView createHeaderCell(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setPadding(16, 16, 16, 16);
+        tv.setGravity(android.view.Gravity.CENTER);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(13);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        return tv;
+    }
+
     private TextView createTableCell(String text) {
         TextView textView = new TextView(this);
         textView.setText(text);
-        textView.setPadding(8, 8, 8, 8);
+        textView.setPadding(16, 16, 16, 16);
         textView.setGravity(android.view.Gravity.CENTER);
+        textView.setTextSize(12);
         textView.setTextColor(Color.BLACK);
-        textView.setBackgroundResource(android.R.drawable.editbox_background_normal);
+
         return textView;
     }
 
@@ -609,10 +905,19 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void refreshAppState() {
+        if (backgroundAnalysisThread != null && backgroundAnalysisThread.isAlive()) {
+            backgroundAnalysisThread.interrupt();
+        }
+        isAnalysisReady = false;
+        isAnalysisRunning = false;
+        currentAnalysisProgress = 0;
+        if (locProgressContainer != null) locProgressContainer.setVisibility(View.GONE);
+
         locationInput.setText(""); searchCdrInput.setText(""); selectedFilePaths.clear();
         lastGeneratedReportPath = null; lastPreviewRows = null; lastGraphData = null;
         resultsContainer.setVisibility(View.GONE); loadingContainer.setVisibility(View.GONE);
-        btnLinkAnalysis.setVisibility(View.GONE); loadingLogo.clearAnimation(); rippleEffect.clearAnimation();
+        btnLinkAnalysis.setVisibility(View.GONE); btnSameLocation.setVisibility(View.GONE);
+        loadingLogo.clearAnimation(); rippleEffect.clearAnimation();
         heatmapContainer.removeAllViews();
         statusText.setText(R.string.status_select_files);
         android.util.TypedValue typedValue = new android.util.TypedValue();
@@ -621,7 +926,16 @@ public class MainActivity extends AppCompatActivity {
         File cacheDir = getCacheDir();
         if (cacheDir.exists()) {
             File[] files = cacheDir.listFiles();
-            if (files != null) for (File f : files) if (f.getName().startsWith("temp_cdr_")) f.delete();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.getName().startsWith("temp_cdr_") || 
+                        f.getName().startsWith("crop_") || 
+                        f.getName().equals("same_loc_results.json") ||
+                        f.getName().equals("link_graph_data.json")) {
+                        f.delete();
+                    }
+                }
+            }
         }
     }
 

@@ -38,6 +38,16 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize" />
 
+        <activity
+            android:name=".CropActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".SameLocationActivity"
+            android:exported="false"
+            android:screenOrientation="landscape" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.provider"

@@ -1,7 +1,17 @@
 <resources>
     <string name="app_name">Offline CDR Analyzer</string>
     <string name="about_title">About Me &amp; App Capabilities</string>
-    <string name="about_capabilities"><![CDATA[• <b>Cross-File Correlation:</b> Detects common contacts across multiple CDR sheets.<br/>• <b>Hardware Tracking:</b> Identifies IMEI swapping and multi-SIM usage patterns.<br/>• <b>Geospatial Intelligence:</b> Analyzes location patterns for night stays.<br/>• <b>Temporal Analysis:</b> Profiles deep-night operational windows.<br/>• <b>Automated Reporting:</b> Generates styled Excel reports with day/night color coding.<br/>• <b>Privacy First:</b> All processing is done locally on your device.]]></string>
+    <string name="about_capabilities"><![CDATA[
+        • <b>Multi-Party Link Correlation:</b> Identifies common contacts called by at least two different suspects.<br/>
+        • <b>Interactive 3D Visualization:</b> Renders relationship links and hardware signatures in a dynamic 3D space.<br/>
+        • <b>Advanced Hardware Forensics:</b> Detects IMEI swapping (hopping) and multi-SIM handset sharing patterns.<br/>
+        • <b>Geospatial Pattern Analysis:</b> Profiles movement clusters, frequent night-stay towers, and tower text similarity.<br/>
+        • <b>Temporal Intelligence:</b> Calculates "Critical Window" activity (01:00 AM - 04:00 AM) against total night operations.<br/>
+        • <b>Background Optimization:</b> Silent pre-processing of movement correlation for instant results.<br/>
+        • <b>Unified Intelligence Export:</b> Generates consolidated Excel and PDF reports with automated formatting.<br/>
+        • <b>Local Edge Processing:</b> All analysis is done 100% offline on-device to ensure maximum data privacy.
+    ]]></string>
+    <string name="action_save_pdf">Save All As PDF</string>
     <string name="update_title">Check for update</string>
     <string name="update_message">When it will be published in google playstore this button will work</string>
     <string name="welcome_title">👋 সিডিআর অ্যানালাইজার ড্যাশবোর্ড</string>
@@ -44,6 +54,7 @@
     <string name="peek_title">📊 Intelligence Preview (Top 50)</string>
     <string name="peek_share_title">CDR Intelligence Preview</string>
     <string name="back_icon_of_link_analysis">Back</string>
+    <string name="loading_logo_description">Loading Logo</string>
     <string name="select_files_to_begin">Select files to begin.</string>
     <string name="developer_name">Developed by Maj Asad</string>
     <string name="btn_show_on_map">🗺️ Show on Map</string>
@@ -55,4 +66,9 @@
     <string name="detected_towers_title">📍 Detected Tower Locations</string>
     <string name="processing_geospatial">Processing CDR geospatial footprint...</string>
     <string name="no_geospatial_data">No geospatial data found in current CDRs.</string>
+    <string name="logo_android_studio">Android Studio</string>
+    <string name="logo_java">Java</string>
+    <string name="logo_python">Python</string>
+    <string name="logo_html">HTML</string>
+    <string name="logo_js">JavaScript</string>
 </resources>

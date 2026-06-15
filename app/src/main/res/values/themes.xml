@@ -1,6 +1,10 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.OfflineCDRAnalyzer" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Full Screen Configuration -->
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+
         <!-- Customize your light theme here. -->
         <item name="dashboardBackgroundColor">@color/dashboard_bg_light</item>
         <item name="primaryTextColor">@color/text_primary_light</item>

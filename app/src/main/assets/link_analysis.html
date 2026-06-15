@@ -59,46 +59,14 @@
 </div>
 
 <script>
-    const Graph = ForceGraph3D()(document.getElementById('graph-container'));
+    const Graph = ForceGraph3D({
+        rendererConfig: { preserveDrawingBuffer: true }
+    })(document.getElementById('graph-container'));
 
     Graph.backgroundColor('#0d1117')
          .showNavInfo(false)
-         .nodeColor(node => {
-             if (node.isCommon) return '#E53E3E'; // Red
-             if (node.isCenter) return '#3182CE'; // Blue
-             return '#718096';                    // Gray
-         })
          .nodeVal(node => node.isCommon ? 12 : 5)
-         .nodeLabel(node => `<span style="color:#f0f6fc">${node.id}</span>`)
-         .onNodeClick(node => {
-             const profiles = window.lastProfiles || {};
-             const profile = profiles[node.id];
-             const el = document.getElementById('profile');
-             const content = document.getElementById('profile-content');
-
-             if (profile) {
-                 el.style.display = 'block';
-                 content.innerHTML = `
-                    <div class="profile-title">📱 Profile: ${node.id}</div>
-                    <div class="profile-row"><span class="profile-label">Total Contacts:</span> ${profile.total}</div>
-                    <div class="profile-row"><span class="profile-label">First Seen:</span> ${profile.first}</div>
-                    <div class="profile-row"><span class="profile-label">Last Seen:</span> ${profile.last}</div>
-                    <div class="profile-row"><span class="profile-label">Top Location:</span><br><a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(profile.top_loc)}&travelmode=driving" target="_blank" style="color:#58a6ff; text-decoration: underline;">${profile.top_loc}</a></div>
-                 `;
-             }
-         })
-
-         // Link Styling
-         .linkColor(link => link.isCommonLink ? '#f0f6fc' : '#30363d')
-         .linkWidth(link => link.isCommonLink ? 4 : 1)
-         .linkOpacity(0.9)
-         .linkDirectionalParticles(link => link.isCommonLink ? 4 : 0)
-         .linkDirectionalParticleWidth(3)
-         .linkDirectionalParticleColor(() => '#E53E3E')
-
-         // Force setup
-         .d3Force('link').distance(link => link.isCommonLink ? 70 : 35)
-         .d3Force('charge').strength(-120);
+         .nodeLabel(node => `<span style="color:#f0f6fc">${node.id}</span>`);
 
     // Add 3D Grid
     const gridHelper = new THREE.GridHelper(1000, 40, 0x30363d, 0x21262d);
@@ -107,7 +75,75 @@
     gridHelper.transparent = true;
     Graph.scene().add(gridHelper);
 
-    function renderOfflineData(jsonString) {
+    function showProfile(nodeId, nodeType) {
+        const profiles = window.lastProfiles || {};
+        const profile = profiles[nodeId];
+        const el = document.getElementById('profile');
+        const content = document.getElementById('profile-content');
+
+        el.style.display = 'block';
+        if (profile) {
+            content.innerHTML = `
+               <div class="profile-title">📱 Profile: ${nodeId}</div>
+               <div class="profile-row"><span class="profile-label">Total Contacts:</span> ${profile.total}</div>
+               <div class="profile-row"><span class="profile-label">First Seen:</span> ${profile.first}</div>
+               <div class="profile-row"><span class="profile-label">Last Seen:</span> ${profile.last}</div>
+               <div class="profile-row"><span class="profile-label">Top Location:</span><br><a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(profile.top_loc)}&travelmode=driving" target="_blank" style="color:#58a6ff; text-decoration: underline;">${profile.top_loc}</a></div>
+            `;
+        } else {
+            content.innerHTML = `
+               <div class="profile-title">🔍 Node ID: ${nodeId}</div>
+               <div class="profile-row"><span class="profile-label">Type:</span> ${nodeType || 'Generic'}</div>
+               <div class="profile-row">No additional metadata available for this node.</div>
+            `;
+        }
+    }
+
+    window.renderSimImeiData = function(jsonString) {
+        try {
+            const legend = document.querySelector('.legend');
+            if (legend) legend.style.display = 'none';
+
+            const fullData = JSON.parse(jsonString);
+            window.lastProfiles = fullData.node_profiles || {};
+            const rawData = fullData.sim_to_imei_graph || {};
+
+            const nodes = [];
+            const links = [];
+
+            if (rawData.nodes) {
+                rawData.nodes.forEach(node => {
+                    nodes.push({
+                        id: String(node.id),
+                        isSIM: node.type === 'SIM',
+                        isIMEI: node.type === 'IMEI'
+                    });
+                });
+            }
+
+            if (rawData.links) {
+                rawData.links.forEach(link => {
+                    links.push({
+                        source: String(link.source),
+                        target: String(link.target),
+                        isSimImeiLink: true
+                    });
+                });
+            }
+
+            Graph.nodeColor(node => node.isSIM ? '#3182CE' : '#F6AD55')
+                 .nodeVal(node => node.isSIM ? 10 : 7)
+                 .onNodeClick(node => showProfile(node.id, node.isIMEI ? 'Hardware (IMEI)' : 'Target (SIM)'))
+                 .linkColor(() => '#4A5568')
+                 .linkWidth(2)
+                 .linkDirectionalParticles(0);
+
+            Graph.graphData({ nodes, links });
+            setTimeout(() => Graph.zoomToFit(800, 100), 500);
+        } catch (e) { console.error("SimImei Render Error:", e); }
+    };
+
+    window.renderOfflineData = function(jsonString) {
         try {
             const rawData = JSON.parse(jsonString);
             window.lastProfiles = rawData.node_profiles || {};
@@ -115,7 +151,6 @@
             const links = [];
             const nodeSet = new Set();
 
-            // 1. A-Parties (Centers)
             if (rawData.centers) {
                 rawData.centers.forEach(id => {
                     const sid = String(id);
@@ -126,7 +161,6 @@
                 });
             }
 
-            // 2. Common B-Parties (Bridges)
             if (rawData["common-links"]) {
                 rawData["common-links"].forEach(item => {
                     const cid = String(item.target);
@@ -144,7 +178,6 @@
                 });
             }
 
-            // 3. Uncommon B-Parties
             if (rawData["uncommon-links"]) {
                 rawData["uncommon-links"].forEach(item => {
                     const source = String(item.source);
@@ -163,16 +196,27 @@
                 });
             }
 
-            Graph.graphData({ nodes, links });
+            Graph.nodeColor(node => {
+                    if (node.isCommon) return '#E53E3E';
+                    if (node.isCenter) return '#3182CE';
+                    return '#718096';
+                 })
+                 .onNodeClick(node => showProfile(node.id, node.isCenter ? 'Target (A-Party)' : 'Contact (B-Party)'))
+                 .linkColor(link => link.isCommonLink ? '#f0f6fc' : '#30363d')
+                 .linkWidth(link => link.isCommonLink ? 4 : 1)
+                 .linkOpacity(0.9)
+                 .linkDirectionalParticles(link => link.isCommonLink ? 4 : 0)
+                 .linkDirectionalParticleWidth(3)
+                 .linkDirectionalParticleColor(() => '#E53E3E')
+                 .d3Force('charge').strength(-120);
 
+            Graph.graphData({ nodes, links });
             setTimeout(() => {
+                Graph.d3Force('link').distance(link => link.isCommonLink ? 70 : 35);
                 Graph.zoomToFit(800, 100);
             }, 500);
-
-        } catch (e) {
-            console.error("Render Error:", e);
-        }
-    }
+        } catch (e) { console.error("Render Error:", e); }
+    };
 </script>
 </body>
 </html>

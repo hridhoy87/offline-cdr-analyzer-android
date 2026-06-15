@@ -51,11 +51,11 @@
             android:hint="e.g., Dhaka, Comilla"
             android:textColorHint="?attr/hintTextColorCustom"
             android:textColor="?attr/primaryTextColor"
-            android:backgroundTint="?attr/inputBackgroundColor"
-            android:background="@android:drawable/editbox_background"
+            android:background="@drawable/edit_text_bg"
             android:padding="12dp"
             android:layout_marginBottom="12dp"
-            android:textSize="14sp"/>
+            android:textSize="14sp"
+            android:inputType="text"/>
 
         <Button
             android:id="@+id/btnSelectFiles"
@@ -63,6 +63,16 @@
             android:layout_height="50dp"
             android:text="Select CDR Excel Sheets"
             android:backgroundTint="#2C3E50"
+            android:textColor="#FFFFFF"
+            android:textAllCaps="false"
+            android:layout_marginBottom="8dp"/>
+
+        <Button
+            android:id="@+id/btnCropLauncher"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:text="✂️ Crop CDR Data"
+            android:backgroundTint="#718096"
             android:textColor="#FFFFFF"
             android:textAllCaps="false"
             android:layout_marginBottom="8dp"/>
@@ -96,29 +106,6 @@
                 android:textAllCaps="false"
                 android:layout_marginStart="6dp"/>
         </LinearLayout>
-
-        <FrameLayout
-            android:id="@+id/loadingContainer"
-            android:layout_width="120dp"
-            android:layout_height="120dp"
-            android:layout_gravity="center"
-            android:visibility="gone"
-            android:layout_marginBottom="20dp">
-
-            <View
-                android:id="@+id/rippleEffect"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/ripple_shadow" />
-
-            <ImageView
-                android:id="@+id/loadingLogo"
-                android:layout_width="80dp"
-                android:layout_height="80dp"
-                android:layout_gravity="center"
-                android:src="@drawable/loading_icon"
-                android:scaleType="fitCenter"/>
-        </FrameLayout>
 
         <!-- Results Section -->
         <LinearLayout
@@ -163,7 +150,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="12dp"
                 android:weightSum="100">
 
                 <EditText
@@ -174,8 +161,7 @@
                     android:hint="Search in CDR(s) (e.g. Bp, IMEI, Loc, IMSI)"
                     android:textColorHint="?attr/hintTextColorCustom"
                     android:textColor="?attr/primaryTextColor"
-                    android:backgroundTint="?attr/inputBackgroundColor"
-                    android:background="@android:drawable/editbox_background"
+                    android:background="@drawable/edit_text_bg"
                     android:padding="12dp"
                     android:textSize="14sp"
                     android:inputType="text"/>
@@ -191,6 +177,78 @@
                     android:contentDescription="Search"
                     app:tint="?attr/primaryTextColor"
                     android:scaleType="centerInside"/>
+            </LinearLayout>
+
+            <!-- Same Location Analysis Action Button -->
+            <Button
+                android:id="@+id/btnSameLocation"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
+                android:text="📍 Do a same location analysis"
+                android:drawableStart="@android:drawable/stat_sys_download"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:drawablePadding="8dp"
+                android:backgroundTint="#008080"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:layout_marginBottom="4dp"
+                android:visibility="visible"/>
+
+            <!-- Progress Indicator for Same Location Analysis -->
+            <LinearLayout
+                android:id="@+id/locProgressContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginBottom="16dp"
+                android:padding="8dp"
+                android:background="@drawable/edit_text_bg"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:id="@+id/locLoadingIcon"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:src="@drawable/loading_icon"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="Loading"/>
+
+                    <ProgressBar
+                        android:id="@+id/locProgressBar"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="100"
+                        android:progress="0"
+                        android:progressTint="#008080"/>
+                    <TextView
+                        android:id="@+id/locProgressText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0%"
+                        android:textColor="#008080"
+                        android:textSize="12sp"
+                        android:layout_marginStart="8dp"
+                        android:textStyle="bold"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Movement Analysis Engine Active"
+                    android:textColor="#008080"
+                    android:textSize="10sp"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:gravity="center_horizontal"/>
             </LinearLayout>
 
             <!-- Main Summary Card -->
@@ -348,6 +406,46 @@
             android:layout_marginTop="24dp"
             android:gravity="center"/>
 
+        <!-- Technology Stack Logos -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="12dp"
+            android:paddingBottom="20dp">
+
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/as"
+                android:contentDescription="@string/logo_android_studio"
+                android:layout_marginEnd="16dp"/>
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/java"
+                android:contentDescription="@string/logo_java"
+                android:layout_marginEnd="16dp"/>
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/py"
+                android:contentDescription="@string/logo_python"
+                android:layout_marginEnd="16dp"/>
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/html"
+                android:contentDescription="@string/logo_html"
+                android:layout_marginEnd="16dp"/>
+            <ImageView
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:src="@drawable/js"
+                android:contentDescription="@string/logo_js"/>
+        </LinearLayout>
+
             </LinearLayout>
         </ScrollView>
 
@@ -363,6 +461,52 @@
             android:contentDescription="Menu"
             android:src="@drawable/ic_menu_dots_vertical"
             app:tint="?attr/primaryTextColor" />
+
+        <!-- Full-screen Loading Overlay -->
+        <FrameLayout
+            android:id="@+id/loadingContainer"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#A6000000"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true">
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:layout_gravity="center">
+
+                <FrameLayout
+                    android:layout_width="120dp"
+                    android:layout_height="120dp">
+                    <View
+                        android:id="@+id/rippleEffect"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/ripple_shadow" />
+                    <ImageView
+                        android:id="@+id/loadingLogo"
+                        android:layout_width="80dp"
+                        android:layout_height="80dp"
+                        android:layout_gravity="center"
+                        android:src="@drawable/loading_icon"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="@string/loading_logo_description"/>
+                </FrameLayout>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Processing Intelligence..."
+                    android:textColor="#FFFFFF"
+                    android:textStyle="bold"
+                    android:layout_marginTop="16dp"
+                    android:textSize="16sp"/>
+            </LinearLayout>
+        </FrameLayout>
 
     </FrameLayout>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

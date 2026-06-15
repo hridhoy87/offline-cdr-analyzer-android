@@ -4,12 +4,16 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorMatrix;
+import android.graphics.ColorMatrixColorFilter;
+import android.graphics.Paint;
 import android.graphics.pdf.PdfDocument;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -18,7 +22,10 @@ import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -38,6 +45,7 @@ import java.util.Locale;
 
 public class LinkAnalysisActivity extends AppCompatActivity {
 
+    private String rawGraphData;
     private static final long INACTIVITY_TIMEOUT = 30 * 60 * 1000;
     private final Handler inactivityHandler = new Handler(Looper.getMainLooper());
     private final Runnable inactivityRunnable = () -> {
@@ -85,15 +93,35 @@ public class LinkAnalysisActivity extends AppCompatActivity {
             }
         }
 
-        String graphData = getIntent().getStringExtra("graph_data");
+        String graphDataPath = getIntent().getStringExtra("graph_data_path");
+        String graphData = null;
+        if (graphDataPath != null) {
+            graphData = readDataFromFile(graphDataPath);
+        }
+        this.rawGraphData = graphData;
+
         WebView webView = findViewById(R.id.webViewGraph);
+        WebView webViewSimImei = findViewById(R.id.webViewSimImei);
         ImageButton btnBack = findViewById(R.id.btnBack);
         ImageButton btnExportPdf = findViewById(R.id.btnExportPdf);
-        View loadingOverlay = findViewById(R.id.loadingOverlay);
+        
+        ImageView loadingLogo = findViewById(R.id.loadingLogo);
+        Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
+        if (loadingLogo != null) loadingLogo.startAnimation(complexAnim);
 
         btnBack.setOnClickListener(v -> finish());
         btnExportPdf.setOnClickListener(v -> exportToPdf(webView));
 
+        setupWebView(webView, graphData, true);
+        setupWebView(webViewSimImei, graphData, false);
+
+        if (graphData != null) {
+            populateAreaHistogram(graphData);
+            populateImeiMapping(graphData);
+        }
+    }
+
+    private void setupWebView(WebView webView, String graphData, boolean isPrimary) {
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setAllowFileAccess(true);
@@ -105,14 +133,114 @@ public class LinkAnalysisActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (graphData != null) {
-                    view.evaluateJavascript("renderOfflineData('" + graphData.replace("'", "\\'") + "')", null);
+                    try {
+                        JSONObject json = new JSONObject(graphData);
+                        String dataToRender = null;
+                        String functionName = null;
+                        
+                        if (isPrimary) {
+                            dataToRender = graphData; 
+                            functionName = "renderOfflineData";
+                        } else {
+                            dataToRender = graphData; 
+                            functionName = "renderSimImeiData";
+                        }
+
+                        if (dataToRender != null && functionName != null) {
+                            String encoded = Base64.encodeToString(dataToRender.getBytes(java.nio.charset.StandardCharsets.UTF_8), Base64.NO_WRAP);
+                            view.evaluateJavascript("window." + functionName + "(decodeURIComponent(escape(window.atob('" + encoded + "'))))", null);
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                 }
-                loadingOverlay.animate().alpha(0f).setDuration(500).withEndAction(() -> loadingOverlay.setVisibility(View.GONE));
+                
+                if (isPrimary) {
+                    View overlay = findViewById(R.id.loadingOverlay);
+                    ImageView logo = findViewById(R.id.loadingLogo);
+                    if (overlay != null) {
+                        overlay.animate().alpha(0f).setDuration(500).withEndAction(() -> {
+                            if (logo != null) logo.clearAnimation();
+                            overlay.setVisibility(View.GONE);
+                        });
+                    }
+                }
             }
         });
         webView.loadUrl("file:///android_asset/link_analysis.html");
+    }
 
-        if (graphData != null) populateAreaHistogram(graphData);
+    private void populateImeiMapping(String jsonString) {
+        LinearLayout mappingLayout = findViewById(R.id.imeiMappingLayout);
+        mappingLayout.removeAllViews(); // Clear previous
+        try {
+            JSONObject jsonObject = new JSONObject(jsonString);
+            if (!jsonObject.has("imei_to_sim_map")) {
+                showNoImeiDataMessage();
+                return;
+            }
+            JSONObject mapping = jsonObject.getJSONObject("imei_to_sim_map");
+            if (mapping.length() == 0) {
+                showNoImeiDataMessage();
+                return;
+            }
+
+            java.util.Iterator<String> keys = mapping.keys();
+            while (keys.hasNext()) {
+                String imei = keys.next();
+                JSONArray sims = mapping.getJSONArray(imei);
+                
+                View itemView = getLayoutInflater().inflate(R.layout.item_histogram_bar, mappingLayout, false);
+                ((TextView) itemView.findViewById(R.id.areaName)).setText("Handset IMEI: " + imei);
+                
+                ProgressBar bar = itemView.findViewById(R.id.areaBar);
+                bar.setMax(8); // Typically handsets have few SIMs, 8 is a good scale
+                bar.setProgress(sims.length());
+                
+                StringBuilder simList = new StringBuilder();
+                for (int i = 0; i < sims.length(); i++) {
+                    simList.append(sims.getString(i));
+                    if (i < sims.length() - 1) simList.append(", ");
+                }
+                
+                TextView countView = itemView.findViewById(R.id.areaCount);
+                countView.setText(sims.length() + " SIMs");
+
+                TextView detailView = new TextView(this);
+                detailView.setText("Activity linked to SIM(s): " + simList.toString());
+                detailView.setTextSize(11);
+                detailView.setTextColor(Color.parseColor("#8b949e"));
+                detailView.setPadding(40, 0, 0, 30);
+
+                mappingLayout.addView(itemView);
+                mappingLayout.addView(detailView);
+            }
+        } catch (JSONException e) {
+            showNoImeiDataMessage();
+        }
+    }
+
+    private void showNoImeiDataMessage() {
+        LinearLayout mappingLayout = findViewById(R.id.imeiMappingLayout);
+        TextView noData = new TextView(this);
+        noData.setText("No multi-SIM handset anomalies detected.");
+        noData.setTextColor(Color.parseColor("#8b949e"));
+        noData.setPadding(0, 10, 0, 0);
+        mappingLayout.addView(noData);
+    }
+
+    private String readDataFromFile(String path) {
+        try {
+            File file = new File(path);
+            java.io.FileInputStream fis = new java.io.FileInputStream(file);
+            byte[] data = new byte[(int) file.length()];
+            int read = fis.read(data);
+            fis.close();
+            return new String(data, 0, read, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
     }
 
     private void exportToPdf(WebView webView) {
@@ -121,24 +249,121 @@ public class LinkAnalysisActivity extends AppCompatActivity {
         PdfDocument.Page page = document.startPage(pageInfo);
         Canvas canvas = page.getCanvas();
 
-        android.graphics.Paint paint = new android.graphics.Paint();
+        Paint paint = new Paint();
         paint.setColor(Color.BLACK);
         paint.setTextSize(18);
-        canvas.drawText("CDR Intelligence Report - Link Analysis", 50, 50, paint);
+        paint.setFakeBoldText(true);
+        canvas.drawText("CDR Intelligence Report - Link Correlation", 50, 50, paint);
 
-        paint.setTextSize(12);
+        paint.setFakeBoldText(false);
+        paint.setTextSize(10);
         String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-        canvas.drawText("Generated on: " + date, 50, 75, paint);
+        canvas.drawText("Generated on: " + date, 50, 70, paint);
 
         try {
-            Bitmap bitmap = Bitmap.createBitmap(webView.getWidth(), webView.getHeight(), Bitmap.Config.ARGB_8888);
-            Canvas bCanvas = new Canvas(bitmap);
-            webView.draw(bCanvas);
-            float scale = Math.min((float) 500 / bitmap.getWidth(), (float) 600 / bitmap.getHeight());
-            Bitmap scaledBitmap = Bitmap.createScaledBitmap(bitmap, (int)(bitmap.getWidth() * scale), (int)(bitmap.getHeight() * scale), true);
-            canvas.drawBitmap(scaledBitmap, 50, 100, paint);
+            // Add Summary of Common B-Parties
+            float y = 100;
+            paint.setTextSize(14);
+            paint.setFakeBoldText(true);
+            canvas.drawText("Summary of Common B-Parties (Correlation):", 50, y, paint);
+            y += 25;
+
+            paint.setFakeBoldText(false);
+            paint.setTextSize(11);
+
+            if (rawGraphData != null) {
+                JSONObject json = new JSONObject(rawGraphData);
+                JSONArray common = json.optJSONArray("common-links");
+
+                if (common != null && common.length() > 0) {
+                    int listNum = 1;
+                    for (int i = 0; i < common.length(); i++) {
+                        JSONObject link = common.getJSONObject(i);
+                        String target = link.optString("target", "Unknown");
+                        JSONArray sources = link.optJSONArray("source");
+                        
+                        // Header line
+                        paint.setFakeBoldText(true);
+                        String headerLine = listNum + ". " + target + " was found common between:";
+                        canvas.drawText(headerLine, 60, y, paint);
+                        y += 15;
+                        
+                        // Sources line
+                        paint.setFakeBoldText(false);
+                        StringBuilder sb = new StringBuilder();
+                        if (sources != null) {
+                            for (int k = 0; k < sources.length(); k++) {
+                                sb.append(sources.optString(k));
+                                if (k < sources.length() - 1) sb.append(", ");
+                            }
+                        }
+                        String sourceStr = sb.toString();
+                        canvas.drawText(sourceStr, 75, y, paint);
+                        
+                        y += 30; // Extra spacing
+                        listNum++;
+
+                        if (y > 780) {
+                            document.finishPage(page);
+                            page = document.startPage(pageInfo);
+                            canvas = page.getCanvas();
+                            y = 50;
+                        }
+                    }
+                } else {
+                    canvas.drawText("No common contacts identified across different A-Parties.", 60, y, paint);
+                }
+
+                // Add Summary of Hardware/IMEI Correlation
+                y += 20;
+                if (y > 780) {
+                    document.finishPage(page);
+                    page = document.startPage(pageInfo);
+                    canvas = page.getCanvas();
+                    y = 50;
+                }
+                
+                paint.setTextSize(14);
+                paint.setFakeBoldText(true);
+                canvas.drawText("Summary of Hardware Correlation (IMEI/SIM):", 50, y, paint);
+                y += 25;
+                paint.setFakeBoldText(false);
+                paint.setTextSize(11);
+
+                JSONObject imeiMap = json.optJSONObject("imei_to_sim_map");
+                if (imeiMap != null && imeiMap.length() > 0) {
+                    java.util.Iterator<String> imeiKeys = imeiMap.keys();
+                    int imeiCount = 1;
+                    while (imeiKeys.hasNext()) {
+                        String imei = imeiKeys.next();
+                        JSONArray sims = imeiMap.getJSONArray(imei);
+                        StringBuilder sb = new StringBuilder();
+                        for (int k = 0; k < sims.length(); k++) {
+                            sb.append(sims.getString(k));
+                            if (k < sims.length() - 1) sb.append(", ");
+                        }
+                        String line = imeiCount + ". Handset " + imei + " linked to SIMs: " + sb.toString();
+                        canvas.drawText(line, 60, y, paint);
+                        y += 15;
+                        imeiCount++;
+                        
+                        if (y > 780) {
+                            document.finishPage(page);
+                            page = document.startPage(pageInfo);
+                            canvas = page.getCanvas();
+                            y = 50;
+                        }
+                    }
+                } else {
+                    canvas.drawText("No multi-SIM or hardware-swapping anomalies found.", 60, y, paint);
+                }
+            } else {
+                canvas.drawText("No correlation data available.", 60, y, paint);
+            }
+            
         } catch (Exception e) {
-            canvas.drawText("Error capturing graph: " + e.getMessage(), 50, 100, paint);
+            paint.setColor(Color.RED);
+            canvas.drawText("Error generating report: " + e.getMessage(), 50, 100, paint);
         }
 
         document.finishPage(page);

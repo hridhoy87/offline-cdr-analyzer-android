@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?attr/dashboardBackgroundColor"
+    android:padding="16dp">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="16dp">
+
+        <ImageButton
+            android:id="@+id/btnBackLoc"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_revert"
+            app:tint="?attr/primaryTextColor" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerInParent="true"
+            android:text="📍 Same Location Analysis"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="?attr/primaryTextColor" />
+
+        <ImageButton
+            android:id="@+id/btnExportPdfLoc"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_alignParentEnd="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_save"
+            app:tint="?attr/primaryTextColor" />
+    </RelativeLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ScrollView
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent">
+
+                <TableLayout
+                    android:id="@+id/locTable"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:stretchColumns="*"
+                    android:divider="?android:attr/dividerHorizontal"
+                    android:showDividers="middle">
+
+                    <TableRow
+                        android:background="#2C3E50"
+                        android:padding="8dp">
+                        <TextView android:text="Time" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="A Party" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="B Party" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="LAC" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="Cell" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="BTS Loc" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                        <TextView android:text="Match Reason" android:textColor="#FFFFFF" android:textStyle="bold" android:padding="8dp" />
+                    </TableRow>
+
+                </TableLayout>
+            </ScrollView>
+        </HorizontalScrollView>
+
+        <FrameLayout
+            android:id="@+id/loadingOverlayLoc"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="?attr/dashboardBackgroundColor"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true">
+            <ImageView
+                android:id="@+id/loadingLogoLoc"
+                android:layout_width="100dp"
+                android:layout_height="100dp"
+                android:layout_gravity="center"
+                android:src="@drawable/loading_icon"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/loading_logo_description" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:layout_marginTop="60dp"
+                android:text="Building Intelligence Table..."
+                android:textColor="?attr/secondaryTextColor"
+                android:textSize="12sp" />
+        </FrameLayout>
+    </FrameLayout>
+
+</LinearLayout>
