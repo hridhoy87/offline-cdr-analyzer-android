@@ -433,10 +433,10 @@ def same_location_analysis(file_paths, progress_callback=None):
                     ap1, ap2 = a_list[i_ap], a_list[j_ap]
                     for ad1 in addr_map.get(ap1, []):
                         for ad2 in addr_map.get(ap2, []):
-                            if SequenceMatcher(None, str(ad1).lower(), str(ad2).lower()).ratio() >= 0.4:
+                            if SequenceMatcher(None, str(ad1).lower(), str(ad2).lower()).ratio() >= 0.7:
                                 rows = day_df[(day_df['A'].isin([ap1, ap2])) & (day_df['Loc'].isin([ad1, ad2]))]
                                 for _, r in rows.iterrows():
-                                    results.append({"Time": r['S'], "A_Party": r['A'], "B_Party": r['B'], "LAC": r['L'], "Cell": r['C'], "BTS_Loc": r['Loc'], "Reason": "Tower Similarity (>40%)"})
+                                    results.append({"Time": r['S'], "A_Party": r['A'], "B_Party": r['B'], "LAC": r['L'], "Cell": r['C'], "BTS_Loc": r['Loc'], "Reason": "Tower Similarity (>70%)"})
             
             if progress_callback:
                 progress_callback.onProgress(int((i + 1) / total_days * 100))

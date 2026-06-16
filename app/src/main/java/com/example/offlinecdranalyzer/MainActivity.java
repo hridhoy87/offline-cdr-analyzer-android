@@ -160,6 +160,7 @@ public class MainActivity extends AppCompatActivity {
             Python.start(new AndroidPlatform(this));
         }
 
+        cleanCache();
         ensureReportDirectory();
         showWelcomeDialog();
 
@@ -932,6 +933,9 @@ public class MainActivity extends AppCompatActivity {
         android.util.TypedValue typedValue = new android.util.TypedValue();
         getTheme().resolveAttribute(R.attr.secondaryTextColor, typedValue, true);
         statusText.setTextColor(typedValue.data);
+    }
+
+    private void cleanCache() {
         File cacheDir = getCacheDir();
         if (cacheDir.exists()) {
             File[] files = cacheDir.listFiles();
