@@ -116,7 +116,8 @@
                     nodes.push({
                         id: String(node.id),
                         isSIM: node.type === 'SIM',
-                        isIMEI: node.type === 'IMEI'
+                        isIMEI: node.type === 'IMEI',
+                        hw: node.hw || ''
                     });
                 });
             }
@@ -133,7 +134,20 @@
 
             Graph.nodeColor(node => node.isSIM ? '#3182CE' : '#F6AD55')
                  .nodeVal(node => node.isSIM ? 10 : 7)
-                 .onNodeClick(node => showProfile(node.id, node.isIMEI ? 'Hardware (IMEI)' : 'Target (SIM)'))
+                 .onNodeClick(node => {
+                    if (node.isIMEI && node.hw) {
+                        const el = document.getElementById('profile');
+                        const content = document.getElementById('profile-content');
+                        el.style.display = 'block';
+                        content.innerHTML = `
+                            <div class="profile-title">📱 Hardware Info</div>
+                            <div class="profile-row"><span class="profile-label">IMEI:</span> ${node.id}</div>
+                            <div class="profile-row"><span class="profile-label">Handset:</span> ${node.hw}</div>
+                        `;
+                    } else {
+                        showProfile(node.id, node.isIMEI ? 'Hardware (IMEI)' : 'Target (SIM)');
+                    }
+                 })
                  .linkColor(() => '#4A5568')
                  .linkWidth(2)
                  .linkDirectionalParticles(0);

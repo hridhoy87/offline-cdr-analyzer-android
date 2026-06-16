@@ -9,6 +9,27 @@ from openpyxl.styles import PatternFill, Font, Alignment
 import time
 from difflib import SequenceMatcher
 
+# Load TAC Database for hardware insights
+TAC_DB = None
+def lookup_imei(imei):
+    global TAC_DB
+    if not imei or len(str(imei)) < 8: return None
+    try:
+        if TAC_DB is None:
+            db_path = os.path.join(os.path.dirname(__file__), "tac_db.csv")
+            if os.path.exists(db_path):
+                TAC_DB = pd.read_csv(db_path, dtype=str)
+                TAC_DB['TAC'] = TAC_DB['TAC'].str.strip()
+            else: return None
+        
+        tac = str(imei)[:8]
+        match = TAC_DB[TAC_DB['TAC'] == tac]
+        if not match.empty:
+            row = match.iloc[0]
+            return f"{row['Manufacturer']} {row['Model']}"
+    except: pass
+    return None
+
 def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, end_ts=None):
     try:
         if not file_paths: return {"status": "error", "message": "No files selected."}
@@ -210,6 +231,42 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     "top_loc": str(b_areas.get(b_p, "Unknown"))
                 }
 
+        # NEW: IMEI to SIM Mapping (Strict sharing only: >1 SIM)
+        imei_to_aps = raw_imei_clean.groupby(col_J)[col_C].unique().apply(list).to_dict()
+        detailed_imei_map = {}
+        for imei, aps in imei_to_aps.items():
+            if len(aps) > 1:
+                hw_info = lookup_imei(imei)
+                detailed_imei_map[str(imei)] = {
+                    "sims": [str(a) for a in aps],
+                    "hardware": hw_info if hw_info else "Unknown Device"
+                }
+
+        # NEW: SIM to IMEI Mapping (Complete mapping for all A-Parties)
+        ap_to_imeis = raw_imei_clean.groupby(col_C)[col_J].unique().apply(list).to_dict()
+        # Include ALL unique A-parties, not just swappers
+        sim_to_imei_map = {str(ap): [{"imei": str(i), "hw": lookup_imei(i) or "Generic Handset"} for i in imeis] for ap, imeis in ap_to_imeis.items() if str(ap) != 'nan'}
+        
+        sim_to_imei_data = {"links": [], "nodes": []}
+        seen_nodes = set()
+        for ap, imeis in ap_to_imeis.items():
+            if len(imeis) > 1: # Keep 3D visualization focused on clusters (swappers)
+                sap = str(ap)
+                if sap not in seen_nodes:
+                    sim_to_imei_data["nodes"].append({"id": sap, "type": "SIM"})
+                    seen_nodes.add(sap)
+                for imei in imeis:
+                    simei = str(imei)
+                    hw_info = lookup_imei(imei)
+                    if simei not in seen_nodes:
+                        sim_to_imei_data["nodes"].append({
+                            "id": simei, 
+                            "type": "IMEI",
+                            "hw": hw_info if hw_info else "Generic Handset"
+                        })
+                        seen_nodes.add(simei)
+                    sim_to_imei_data["links"].append({"source": sap, "target": simei})
+
         common_nums = set(extracted_common) if not is_single_file else set()
         uncommon_map = {a: [] for a in unique_a_parties}
         common_map = {}
@@ -233,11 +290,25 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             "all_party_areas": {**a_areas, **b_areas},
             "node_profiles": node_profiles,
             "imei_to_sim_map": detailed_imei_map,
-            "sim_to_imei_graph": sim_to_imei_data
+            "sim_to_imei_graph": sim_to_imei_data,
+            "sim_to_imei_map": sim_to_imei_map
         }, ensure_ascii=False)
 
         return {"status": "success", "output_path": output_excel_path, "metrics": {"a_parties": summary_a_parties_str, "top_b_parties": top_b_data, "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_str, "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str, "night_routine": summary_night_routine_str, "area_clusters": area_clusters, "hourly_activity": hourly_activity, "preview_rows": preview_data, "graph_data": graph_data}}
     except Exception as e: return {"status": "error", "message": f"Engine failure: {str(e)}"}
+
+def export_same_location_to_excel(json_data, output_path):
+    try:
+        data = json.loads(json_data)
+        if not data: return {"status": "error", "message": "No data to export."}
+        df = pd.DataFrame(data)
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Same Location Analysis")
+            ws = writer.sheets["Same Location Analysis"]
+            for row in ws.iter_rows():
+                for cell in row: cell.number_format = "@"
+        return {"status": "success", "output_path": output_path}
+    except Exception as e: return {"status": "error", "message": str(e)}
 
 def search_cdr_data(file_paths, search_query):
     try:
@@ -249,25 +320,52 @@ def search_cdr_data(file_paths, search_query):
             try:
                 df = pd.read_excel(path, engine="openpyxl", dtype=str)
                 if df.empty or len(df.columns) < 12: continue
-                a_party = [num for num in df[df.columns[2]].apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:]).unique() if num][-1]
-                df['_internal_a'], df['_internal_time'], df['_internal_loc'] = a_party, pd.to_datetime(df[df.columns[0]], errors='coerce'), df[df.columns[11]].fillna('').astype(str).str.strip()
+                # Identify A-party for this file context
+                nums = df[df.columns[2]].apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:]).unique()
+                a_party = nums[-1] if len(nums) > 0 else "Unknown"
+                
+                df['_internal_a'] = a_party
+                df['_internal_time'] = pd.to_datetime(df[df.columns[0]], errors='coerce')
+                df['_internal_loc'] = df[df.columns[11]].fillna('').astype(str).str.strip()
                 all_dfs.append(df)
             except: continue
+            
         if not all_dfs: return {"status": "error", "message": "No data extracted."}
         combined = pd.concat(all_dfs, ignore_index=True)
         dialog_lines = []
+        
         for term in terms:
             mask = combined.astype(str).apply(lambda col: col.str.contains(term, case=False, na=False)).any(axis=1)
             match_df = combined[mask]
-            if match_df.empty: dialog_lines.append(f"<b>{term} Not Found</b>")
+            
+            if match_df.empty:
+                dialog_lines.append(f"<font color='#E53E3E'><b>Term: {term}</b></font><br/>&nbsp;&nbsp;Status: <i>Not Found in Database</i>")
             else:
-                found_a = sorted(list(set(match_df['_internal_a'].astype(str).tolist())))
-                hours = match_df['_internal_time'].dt.hour.value_counts().head(2)
-                time_info = " and ".join([f"{int(h):02d}:00" for h in hours.index]) if not hours.empty else "N/A"
+                # Identify which columns matched
+                hit_cols = []
+                for col in combined.columns:
+                    if not str(col).startswith('_internal'):
+                        if match_df[col].astype(str).str.contains(term, case=False, na=False).any():
+                            hit_cols.append(str(col))
+                
+                suspects = sorted(list(set(match_df['_internal_a'].astype(str).tolist())))
+                hours = match_df['_internal_time'].dt.hour
+                night_count = len(hours[(hours >= 18) | (hours < 6)])
+                intensity = "Night Heavy" if night_count > len(match_df)/2 else "Day Heavy"
+                
                 locs = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3)
-                loc_html = "<br>" + "<br>".join([f"&nbsp;&nbsp;{l}" for l in locs.index]) if not locs.empty else " N/A"
-                dialog_lines.append(f"<b>{term} found in {', '.join(found_a)}</b><br>(i) Frequency: {len(match_df)}<br>(ii) Time: Mostly {time_info}<br>(iii) Location: {loc_html}")
-        return {"status": "success", "summary_html": "<br><br>".join(dialog_lines)}
+                loc_str = ", ".join(locs.index) if not locs.empty else "N/A"
+                
+                res = [
+                    f"<b>Term: <font color='#3182CE'>{term}</font></b>",
+                    f"• Linked Suspects: {', '.join(suspects)}",
+                    f"• Match Found In: {', '.join(hit_cols[:3])}",
+                    f"• Frequency: {len(match_df)} hits ({intensity})",
+                    f"• Top Locations: {loc_str}"
+                ]
+                dialog_lines.append("<br/>".join(res))
+                
+        return {"status": "success", "summary_html": "<br/><br/>".join(dialog_lines)}
     except Exception as e: return {"status": "error", "message": str(e)}
 
 def crop_cdr_data(file_paths, location_query, start_ts, end_ts, output_dir):

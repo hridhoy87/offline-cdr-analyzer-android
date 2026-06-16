@@ -23,6 +23,8 @@ import android.widget.TextView;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
+import com.chaquo.python.PyObject;
+import com.chaquo.python.Python;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -33,6 +35,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class SameLocationActivity extends AppCompatActivity {
 
@@ -65,11 +68,13 @@ public class SameLocationActivity extends AppCompatActivity {
         complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
         ImageButton btnBack = findViewById(R.id.btnBackLoc);
         ImageButton btnExportPdf = findViewById(R.id.btnExportPdfLoc);
+        ImageButton btnExportExcel = findViewById(R.id.btnExportExcelLoc);
 
         String jsonPath = getIntent().getStringExtra("loc_json_path");
         
         btnBack.setOnClickListener(v -> finish());
         btnExportPdf.setOnClickListener(v -> exportToPdf());
+        btnExportExcel.setOnClickListener(v -> exportToExcel());
 
         if (jsonPath != null) {
             startAsyncPopulation(jsonPath);
@@ -228,6 +233,64 @@ public class SameLocationActivity extends AppCompatActivity {
             Toast.makeText(this, "Export Failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         } finally {
             pdfDocument.close();
+        }
+    }
+
+    private void exportToExcel() {
+        if (rawJson == null) return;
+        
+        loadingOverlay.setVisibility(View.VISIBLE);
+        loadingLogo.startAnimation(complexAnim);
+        
+        new Thread(() -> {
+            try {
+                File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
+                if (!dir.exists()) dir.mkdirs();
+                
+                String fileName = "SameLocationAnalysis_" + System.currentTimeMillis() + ".xlsx";
+                File file = new File(dir, fileName);
+                
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("index");
+                PyObject result = pyModule.callAttr("export_same_location_to_excel", rawJson, file.getAbsolutePath());
+                
+                Map<PyObject, PyObject> resultMap = result.asMap();
+                PyObject pyStatus = resultMap.get(py.getBuiltins().get("str").call("status"));
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
+                
+                runOnUiThread(() -> {
+                    loadingOverlay.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    if ("success".equals(status)) {
+                        Toast.makeText(this, "Excel Exported Successfully", Toast.LENGTH_SHORT).show();
+                        openExcelFile(file.getAbsolutePath());
+                    } else {
+                        PyObject pyMsg = resultMap.get(py.getBuiltins().get("str").call("message"));
+                        String msg = (pyMsg != null) ? pyMsg.toString() : "Unknown error";
+                        Toast.makeText(this, "Export Failed: " + msg, Toast.LENGTH_SHORT).show();
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    loadingOverlay.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    Toast.makeText(this, "System Error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+    }
+
+    private void openExcelFile(String path) {
+        try {
+            File file = new File(path);
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".provider", file);
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setDataAndType(uri, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(Intent.createChooser(intent, "Open Excel"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Error opening file: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 

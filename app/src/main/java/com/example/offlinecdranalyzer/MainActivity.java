@@ -770,21 +770,30 @@ public class MainActivity extends AppCompatActivity {
     private void showSearchResultsDialog(String summaryHtml) {
         TextView textView = new TextView(this);
         textView.setText(Html.fromHtml(summaryHtml, Html.FROM_HTML_MODE_COMPACT));
-        textView.setPadding(48, 40, 48, 40);
+        textView.setPadding(60, 48, 60, 48);
         textView.setTextSize(14);
+        textView.setLineSpacing(0, 1.2f);
+        
         android.util.TypedValue typedValue = new android.util.TypedValue();
         getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true);
         textView.setTextColor(typedValue.data);
+        
         textView.setOnClickListener(v -> {
             String plainText = textView.getText().toString();
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             clipboard.setPrimaryClip(ClipData.newPlainText(getString(R.string.clipboard_label), plainText));
-            shareText(getString(R.string.clipboard_label), plainText);
+            shareText(getString(R.string.share_results_title), plainText);
             Toast.makeText(this, R.string.share_results_toast, Toast.LENGTH_SHORT).show();
         });
+
         androidx.core.widget.NestedScrollView scrollView = new androidx.core.widget.NestedScrollView(this);
         scrollView.addView(textView);
-        new AlertDialog.Builder(this).setTitle(R.string.search_results_title).setView(scrollView).setPositiveButton(R.string.close, null).show();
+        
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.search_results_title)
+                .setView(scrollView)
+                .setPositiveButton(R.string.close, null)
+                .show();
     }
 
     private void openExcelFile(String path) {

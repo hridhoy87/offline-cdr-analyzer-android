@@ -188,13 +188,15 @@ public class LinkAnalysisActivity extends AppCompatActivity {
             java.util.Iterator<String> keys = mapping.keys();
             while (keys.hasNext()) {
                 String imei = keys.next();
-                JSONArray sims = mapping.getJSONArray(imei);
+                JSONObject imeiData = mapping.getJSONObject(imei);
+                JSONArray sims = imeiData.getJSONArray("sims");
+                String hardware = imeiData.optString("hardware", "Generic Device");
                 
                 View itemView = getLayoutInflater().inflate(R.layout.item_histogram_bar, mappingLayout, false);
-                ((TextView) itemView.findViewById(R.id.areaName)).setText("Handset IMEI: " + imei);
+                ((TextView) itemView.findViewById(R.id.areaName)).setText("Handset: " + hardware);
                 
                 ProgressBar bar = itemView.findViewById(R.id.areaBar);
-                bar.setMax(8); // Typically handsets have few SIMs, 8 is a good scale
+                bar.setMax(8); 
                 bar.setProgress(sims.length());
                 
                 StringBuilder simList = new StringBuilder();
@@ -207,7 +209,7 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 countView.setText(sims.length() + " SIMs");
 
                 TextView detailView = new TextView(this);
-                detailView.setText("Activity linked to SIM(s): " + simList.toString());
+                detailView.setText("IMEI: " + imei + "\nUsed by SIM(s): " + simList.toString());
                 detailView.setTextSize(11);
                 detailView.setTextColor(Color.parseColor("#8b949e"));
                 detailView.setPadding(40, 0, 0, 30);
@@ -246,49 +248,49 @@ public class LinkAnalysisActivity extends AppCompatActivity {
     private void exportToPdf(WebView webView) {
         PdfDocument document = new PdfDocument();
         PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(595, 842, 1).create();
-        PdfDocument.Page page = document.startPage(pageInfo);
-        Canvas canvas = page.getCanvas();
+        final PdfDocument.Page[] page = {document.startPage(pageInfo)};
+        final Canvas[] canvas = {page[0].getCanvas()};
+        final float[] y = {50};
 
         Paint paint = new Paint();
         paint.setColor(Color.BLACK);
+        
+        // Initial Header
         paint.setTextSize(18);
         paint.setFakeBoldText(true);
-        canvas.drawText("CDR Intelligence Report - Link Correlation", 50, 50, paint);
+        canvas[0].drawText("CDR Intelligence Report - Link Correlation", 50, y[0], paint);
+        y[0] += 20;
 
         paint.setFakeBoldText(false);
         paint.setTextSize(10);
         String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
-        canvas.drawText("Generated on: " + date, 50, 70, paint);
+        canvas[0].drawText("Generated on: " + date, 50, y[0], paint);
+        y[0] += 30;
 
         try {
-            // Add Summary of Common B-Parties
-            float y = 100;
-            paint.setTextSize(14);
-            paint.setFakeBoldText(true);
-            canvas.drawText("Summary of Common B-Parties (Correlation):", 50, y, paint);
-            y += 25;
-
-            paint.setFakeBoldText(false);
-            paint.setTextSize(11);
-
             if (rawGraphData != null) {
                 JSONObject json = new JSONObject(rawGraphData);
-                JSONArray common = json.optJSONArray("common-links");
+                
+                // 1. Summary of Common B-Parties
+                paint.setTextSize(14);
+                paint.setFakeBoldText(true);
+                canvas[0].drawText("Summary of Common B-Parties (Correlation):", 50, y[0], paint);
+                y[0] += 25;
 
+                paint.setFakeBoldText(false);
+                paint.setTextSize(11);
+
+                JSONArray common = json.optJSONArray("common-links");
                 if (common != null && common.length() > 0) {
-                    int listNum = 1;
                     for (int i = 0; i < common.length(); i++) {
                         JSONObject link = common.getJSONObject(i);
                         String target = link.optString("target", "Unknown");
                         JSONArray sources = link.optJSONArray("source");
                         
-                        // Header line
                         paint.setFakeBoldText(true);
-                        String headerLine = listNum + ". " + target + " was found common between:";
-                        canvas.drawText(headerLine, 60, y, paint);
-                        y += 15;
+                        canvas[0].drawText((i + 1) + ". " + target + " was found common between:", 60, y[0], paint);
+                        y[0] += 15;
                         
-                        // Sources line
                         paint.setFakeBoldText(false);
                         StringBuilder sb = new StringBuilder();
                         if (sources != null) {
@@ -297,83 +299,112 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                                 if (k < sources.length() - 1) sb.append(", ");
                             }
                         }
-                        String sourceStr = sb.toString();
-                        canvas.drawText(sourceStr, 75, y, paint);
-                        
-                        y += 30; // Extra spacing
-                        listNum++;
+                        canvas[0].drawText(sb.toString(), 75, y[0], paint);
+                        y[0] += 30;
 
-                        if (y > 780) {
-                            document.finishPage(page);
-                            page = document.startPage(pageInfo);
-                            canvas = page.getCanvas();
-                            y = 50;
+                        if (y[0] > 780) {
+                            document.finishPage(page[0]);
+                            page[0] = document.startPage(pageInfo);
+                            canvas[0] = page[0].getCanvas();
+                            y[0] = 50;
                         }
                     }
                 } else {
-                    canvas.drawText("No common contacts identified across different A-Parties.", 60, y, paint);
+                    canvas[0].drawText("No common contacts identified across different A-Parties.", 60, y[0], paint);
+                    y[0] += 30;
                 }
 
-                // Add Summary of Hardware/IMEI Correlation
-                y += 20;
-                if (y > 780) {
-                    document.finishPage(page);
-                    page = document.startPage(pageInfo);
-                    canvas = page.getCanvas();
-                    y = 50;
+                // 2. Summary of Hardware Correlation (SIM to IMEI)
+                y[0] += 20;
+                if (y[0] > 700) {
+                    document.finishPage(page[0]);
+                    page[0] = document.startPage(pageInfo);
+                    canvas[0] = page[0].getCanvas();
+                    y[0] = 50;
                 }
                 
                 paint.setTextSize(14);
                 paint.setFakeBoldText(true);
-                canvas.drawText("Summary of Hardware Correlation (IMEI/SIM):", 50, y, paint);
-                y += 25;
-                paint.setFakeBoldText(false);
-                paint.setTextSize(11);
+                canvas[0].drawText("Summary of Hardware Correlation (SIM to IMEI):", 50, y[0], paint);
+                y[0] += 25;
 
-                JSONObject imeiMap = json.optJSONObject("imei_to_sim_map");
-                if (imeiMap != null && imeiMap.length() > 0) {
-                    java.util.Iterator<String> imeiKeys = imeiMap.keys();
-                    int imeiCount = 1;
-                    while (imeiKeys.hasNext()) {
-                        String imei = imeiKeys.next();
-                        JSONArray sims = imeiMap.getJSONArray(imei);
-                        StringBuilder sb = new StringBuilder();
-                        for (int k = 0; k < sims.length(); k++) {
-                            sb.append(sims.getString(k));
-                            if (k < sims.length() - 1) sb.append(", ");
-                        }
-                        String line = imeiCount + ". Handset " + imei + " linked to SIMs: " + sb.toString();
-                        canvas.drawText(line, 60, y, paint);
-                        y += 15;
-                        imeiCount++;
+                // Draw Table Headers helper
+                drawHardwareTableHeader(canvas[0], paint, y[0]);
+                y[0] += 20;
+                paint.setFakeBoldText(false);
+                paint.setTextSize(10);
+
+                JSONObject simImeiMap = json.optJSONObject("sim_to_imei_map");
+                if (simImeiMap != null && simImeiMap.length() > 0) {
+                    java.util.Iterator<String> simKeys = simImeiMap.keys();
+                    int serial = 1;
+                    while (simKeys.hasNext()) {
+                        String sim = simKeys.next();
+                        JSONArray imeis = simImeiMap.getJSONArray(sim);
                         
-                        if (y > 780) {
-                            document.finishPage(page);
-                            page = document.startPage(pageInfo);
-                            canvas = page.getCanvas();
-                            y = 50;
+                        for (int k = 0; k < imeis.length(); k++) {
+                            if (y[0] > 780) {
+                                document.finishPage(page[0]);
+                                page[0] = document.startPage(pageInfo);
+                                canvas[0] = page[0].getCanvas();
+                                y[0] = 50;
+                                drawHardwareTableHeader(canvas[0], paint, y[0]);
+                                y[0] += 20;
+                                paint.setFakeBoldText(false);
+                                paint.setTextSize(10);
+                            }
+
+                            JSONObject imeiObj = imeis.getJSONObject(k);
+                            String imei = imeiObj.optString("imei", "Unknown");
+                            String hw = imeiObj.optString("hw", "Generic Handset");
+
+                            if (k == 0) {
+                                paint.setFakeBoldText(true);
+                                canvas[0].drawText(String.valueOf(serial), 50, y[0], paint);
+                                canvas[0].drawText(sim, 100, y[0], paint);
+                                paint.setFakeBoldText(false);
+                            }
+                            
+                            canvas[0].drawText(imei, 230, y[0], paint);
+                            String brandDisplay = hw.length() > 30 ? hw.substring(0, 27) + "..." : hw;
+                            canvas[0].drawText(brandDisplay, 400, y[0], paint);
+                            
+                            y[0] += 15;
                         }
+                        serial++;
+                        y[0] += 5;
+                        canvas[0].drawLine(50, y[0], 550, y[0], paint);
+                        y[0] += 15;
                     }
                 } else {
-                    canvas.drawText("No multi-SIM or hardware-swapping anomalies found.", 60, y, paint);
+                    canvas[0].drawText("No hardware signature data available.", 60, y[0], paint);
                 }
-            } else {
-                canvas.drawText("No correlation data available.", 60, y, paint);
             }
-            
         } catch (Exception e) {
             paint.setColor(Color.RED);
-            canvas.drawText("Error generating report: " + e.getMessage(), 50, 100, paint);
+            canvas[0].drawText("Error generating report: " + e.getMessage(), 50, y[0], paint);
         }
 
-        document.finishPage(page);
+        document.finishPage(page[0]);
+        savePdfFile(document);
+    }
+
+    private void drawHardwareTableHeader(Canvas canvas, Paint paint, float y) {
+        paint.setTextSize(10);
+        paint.setFakeBoldText(true);
+        canvas.drawText("Serial", 50, y, paint);
+        canvas.drawText("SIM (A Party)", 100, y, paint);
+        canvas.drawText("IMEI Signature(s)", 230, y, paint);
+        canvas.drawText("Brand Info", 400, y, paint);
+        canvas.drawLine(50, y + 5, 550, y + 5, paint);
+    }
+
+    private void savePdfFile(PdfDocument document) {
         File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
-        if (!dir.exists()) {
-            if (!dir.mkdirs()) {
-                Toast.makeText(this, "Failed to create directory", Toast.LENGTH_SHORT).show();
-                document.close();
-                return;
-            }
+        if (!dir.exists() && !dir.mkdirs()) {
+            Toast.makeText(this, "Failed to create directory", Toast.LENGTH_SHORT).show();
+            document.close();
+            return;
         }
 
         String fileName = "Link_Analysis_" + System.currentTimeMillis() + ".pdf";

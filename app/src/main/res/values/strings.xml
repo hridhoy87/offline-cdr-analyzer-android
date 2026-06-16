@@ -42,6 +42,7 @@
     <string name="search_results_title">🔍 CDR Search Results (Tap to Share)</string>
     <string name="clipboard_label">CDR Search Result</string>
     <string name="share_results_toast">Result copied and sharing opened</string>
+    <string name="share_results_title">Share Search Results</string>
     <string name="open_excel_error">Could not open Excel app. File saved at: %s</string>
     <string name="no_data_to_preview">No data to preview</string>
     <string name="status_select_files">Select files to begin.</string>

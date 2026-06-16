@@ -29,14 +29,31 @@
             android:textStyle="bold"
             android:textColor="?attr/primaryTextColor" />
 
-        <ImageButton
-            android:id="@+id/btnExportPdfLoc"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_alignParentEnd="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_save"
-            app:tint="?attr/primaryTextColor" />
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnExportExcelLoc"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_agenda"
+                android:contentDescription="Export to Excel"
+                app:tint="?attr/primaryTextColor" />
+
+            <ImageButton
+                android:id="@+id/btnExportPdfLoc"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_menu_save"
+                android:contentDescription="Export to PDF"
+                app:tint="?attr/primaryTextColor" />
+        </LinearLayout>
     </RelativeLayout>
 
     <FrameLayout
