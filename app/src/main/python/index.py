@@ -291,7 +291,8 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             "node_profiles": node_profiles,
             "imei_to_sim_map": detailed_imei_map,
             "sim_to_imei_graph": sim_to_imei_data,
-            "sim_to_imei_map": sim_to_imei_map
+            "sim_to_imei_map": sim_to_imei_map,
+            "preview_rows": preview_data
         }, ensure_ascii=False)
 
         return {"status": "success", "output_path": output_excel_path, "metrics": {"a_parties": summary_a_parties_str, "top_b_parties": top_b_data, "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_str, "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str, "night_routine": summary_night_routine_str, "area_clusters": area_clusters, "hourly_activity": hourly_activity, "preview_rows": preview_data, "graph_data": graph_data}}
@@ -441,7 +442,77 @@ def same_location_analysis(file_paths, progress_callback=None):
             if progress_callback:
                 progress_callback.onProgress(int((i + 1) / total_days * 100))
 
-        if not results: return {"status": "success", "data": "[]"}
-        final = pd.DataFrame(results).drop_duplicates(subset=['Time', 'A_Party'])
-        return {"status": "success", "data": json.dumps(final.sort_values('Time', ascending=False).head(1500).to_dict('records'), ensure_ascii=False)}
+        if not results: return {"status": "success", "data": "[]", "summary": "No spatial overlaps detected."}
+        
+        final_df = pd.DataFrame(results).drop_duplicates(subset=['Time', 'A_Party'])
+        
+        # --- Generate Crisp Spatial Summary ---
+        try:
+            # We round time to 30-minute buckets for grouping the summary
+            # but we use the actual Time for the list of timestamps.
+            summary_df = final_df.copy()
+            summary_df['_dt'] = pd.to_datetime(summary_df['Time'], errors='coerce')
+            summary_df = summary_df.dropna(subset=['_dt'])
+            
+            # Floor to 30 minutes to catch people "around each other"
+            summary_df['_bucket'] = summary_df['_dt'].dt.floor('30T')
+            
+            # Group by 30-min window and location identifiers
+            # If multiple parties are in the same 30min window at the same tower/LAC
+            groups = summary_df.groupby(['_bucket', 'LAC', 'Cell', 'BTS_Loc'])['A_Party'].unique()
+            
+            # set_counts: { "Party A & Party B": [list of actual timestamps] }
+            set_counts = {}
+            for parties in groups:
+                if len(parties) < 2: continue
+                
+                # Create a stable key for this group of people
+                p_list = sorted([str(p) for p in parties])
+                p_key = " and ".join(p_list) if len(p_list) == 2 else ", ".join(p_list[:-1]) + " and " + p_list[-1]
+                
+                if p_key not in set_counts: set_counts[p_key] = []
+                
+                # Find the representative times for this bucket in the original data
+                mask = (summary_df['_bucket'] == groups.index[0][0]) # This logic was flawed before
+            
+            # Better approach: Iterate with index
+            set_counts = {}
+            for idx, parties in groups.items():
+                if len(parties) < 2:
+                    continue
+                
+                p_list = sorted([str(p) for p in parties])
+                p_key = " and ".join(p_list) if len(p_list) == 2 else ", ".join(p_list[:-1]) + " and " + p_list[-1]
+                
+                if p_key not in set_counts:
+                    set_counts[p_key] = set()
+                
+                # Add a representative timestamp for this overlap event
+                # We'll take the time from the index (the bucket)
+                set_counts[p_key].add(idx[0].strftime("%d/%m/%y %H:%M"))
+
+            summary_lines = []
+            import string
+            labels = list(string.ascii_lowercase)
+            
+            # Sort by frequency of overlaps
+            sorted_sets = sorted(set_counts.items(), key=lambda x: len(x[1]), reverse=True)
+            
+            for i, (p_key, times_set) in enumerate(sorted_sets):
+                label = labels[i % 26] if i < 26 else f"z{i}"
+                times_list = sorted(list(times_set), reverse=True)
+                count = len(times_list)
+                
+                # Show top 5 times
+                display_times = times_list[:5]
+                time_str = " | ".join(display_times)
+                if count > 5: time_str += " ..."
+                
+                summary_lines.append(f"{label}. Parties {p_key} were found around each other [{count}] times. The times are: {time_str}")
+            
+            spatial_summary = "\n".join(summary_lines) if summary_lines else "No concurrent spatial overlaps detected (using 30-min windowing)."
+        except Exception as e:
+            spatial_summary = f"Summary calculation error: {str(e)}"
+
+        return {"status": "success", "data": json.dumps(final_df.sort_values('Time', ascending=False).head(1500).to_dict('records'), ensure_ascii=False), "summary": spatial_summary}
     except Exception as e: return {"status": "error", "message": f"Critical Error: {str(e)}"}

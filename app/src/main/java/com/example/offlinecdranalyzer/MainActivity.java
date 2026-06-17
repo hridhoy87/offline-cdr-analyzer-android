@@ -32,6 +32,10 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Html;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -42,6 +46,8 @@ import android.view.WindowManager;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 import android.view.inputmethod.InputMethodManager;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -99,7 +105,9 @@ public class MainActivity extends AppCompatActivity {
     private String lastGeneratedReportPath = null;
     private String lastGraphData = null;
     private String lastSameLocationJson = null;
+    private String lastSpatialSummary = null;
     private List<Map<PyObject, PyObject>> lastPreviewRows = null;
+    private String lastSummaryHtml = null;
     
     private Calendar filterStartCal = null;
     private Calendar filterEndCal = null;
@@ -218,7 +226,7 @@ public class MainActivity extends AppCompatActivity {
                     showUpdateBanner();
                     return true;
                 } else if (item.getItemId() == R.id.action_save_pdf) {
-                    Toast.makeText(MainActivity.this, "Save All As PDF functionality coming soon", Toast.LENGTH_SHORT).show();
+                    generatePdfReport();
                     return true;
                 }
                 return false;
@@ -362,10 +370,121 @@ public class MainActivity extends AppCompatActivity {
             showAboutDialog();
             return true;
         } else if (item.getItemId() == R.id.action_save_pdf) {
-            Toast.makeText(this, "Save All As PDF functionality coming soon", Toast.LENGTH_SHORT).show();
+            generatePdfReport();
             return true;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void generatePdfReport() {
+        if (!isAnalysisReady || lastGeneratedReportPath == null) {
+            Toast.makeText(this, "Please run analysis first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        loadingContainer.setVisibility(View.VISIBLE);
+        statusText.setText("Preparing Forensic PDF...");
+        
+        Animation complexAnim = AnimationUtils.loadAnimation(this, R.anim.complex_loader);
+        loadingLogo.startAnimation(complexAnim);
+        rippleEffect.startAnimation(complexAnim);
+
+        new Thread(() -> {
+            try {
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("pdf_report_writer");
+                
+                // 1. Prepare Case Name
+                String caseName = "FORENSIC_" + new SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(new Date());
+                
+                // 2. Prepare Summary HTML
+                String summary = lastSummaryHtml != null ? lastSummaryHtml : "No Summary Available";
+
+                // 3. Prepare Preview Rows (already in lastPreviewRows)
+                
+                // 4. Read Same Location JSON from temp file
+                String sameLocJson = "[]";
+                if (lastSameLocationJson != null) {
+                    File file = new File(lastSameLocationJson);
+                    if (file.exists()) {
+                        byte[] encoded = java.nio.file.Files.readAllBytes(file.toPath());
+                        sameLocJson = new String(encoded, java.nio.charset.StandardCharsets.UTF_8);
+                    }
+                }
+
+                // 5. CDR Names
+                List<String> cdrNames = new ArrayList<>();
+                for (String p : selectedFilePaths) {
+                    cdrNames.add(new File(p).getName());
+                }
+
+                String locReq = locationInput.getText().toString().trim();
+                if (locReq.isEmpty()) locReq = "All Locations";
+                
+                String timeline = "Complete History";
+                if (filterStartCal != null && filterEndCal != null) {
+                    SimpleDateFormat sdf = new SimpleDateFormat("dd MMM yy HH:mm", Locale.US);
+                    timeline = sdf.format(filterStartCal.getTime()) + " to " + sdf.format(filterEndCal.getTime());
+                }
+
+                // Call Python to generate HTML
+                PyObject htmlResult = pyModule.callAttr("generate_case_report_html",
+                        caseName,
+                        summary,
+                        lastGraphData, // Pass unified JSON string
+                        sameLocJson,
+                        null, // alias_database
+                        locReq,
+                        timeline,
+                        cdrNames.toArray(new String[0]),
+                        lastSpatialSummary
+                );
+
+                String finalHtml = htmlResult.toString();
+
+                runOnUiThread(() -> {
+                    loadingContainer.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    printHtmlToPdf(finalHtml, caseName);
+                });
+
+            } catch (Exception e) {
+                Log.e("PDF_GEN", "Error: ", e);
+                runOnUiThread(() -> {
+                    loadingContainer.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
+                    rippleEffect.clearAnimation();
+                    Toast.makeText(this, "Failed to generate PDF: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                });
+            }
+        }).start();
+    }
+
+    private void printHtmlToPdf(String htmlContent, String jobName) {
+        WebView webView = new WebView(this);
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                createWebPrintJob(view, jobName);
+            }
+        });
+
+        // Load HTML with base URL to allow internal resources if needed
+        webView.loadDataWithBaseURL(null, htmlContent, "text/html", "utf-8", null);
+    }
+
+    private void createWebPrintJob(WebView webView, String jobName) {
+        PrintManager printManager = (PrintManager) this.getSystemService(Context.PRINT_SERVICE);
+        PrintDocumentAdapter printAdapter = webView.createPrintDocumentAdapter(jobName);
+        
+        PrintAttributes attributes = new PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setResolution(new PrintAttributes.Resolution("pdf", "pdf", 600, 600))
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                .build();
+
+        printManager.print(jobName, printAdapter, attributes);
     }
 
     private void showAboutDialog() {
@@ -575,6 +694,11 @@ public class MainActivity extends AppCompatActivity {
             summaryNightStays.setText(Html.fromHtml(nightStaysHtml.toString(), Html.FROM_HTML_MODE_COMPACT));
             summaryCommonBParties.setText(Html.fromHtml(getString(R.string.summary_common_b_parties, rawCommonB), Html.FROM_HTML_MODE_COMPACT));
 
+            lastSummaryHtml = "<b>A-Parties:</b> " + metrics.get(py.getBuiltins().get("str").call("a_parties")).toString() + "<br/><br/>" +
+                              "<b>Top B-Parties:</b><br/>" + topBHtml.toString() + "<br/>" +
+                              "<b>Night Stays:</b><br/>" + nightStaysHtml.toString() + "<br/>" +
+                              "<b>Common Contacts:</b> " + rawCommonB;
+
             summaryCardContent.setOnClickListener(v -> {
                 String aParties = metrics.get(py.getBuiltins().get("str").call("a_parties")).toString();
                 String commonB = (!"None".equalsIgnoreCase(rawCommonB) && !"N/A (Single File Uploaded)".equalsIgnoreCase(rawCommonB)) ? rawCommonB.replace(", ", ",\n") : rawCommonB;
@@ -651,6 +775,9 @@ public class MainActivity extends AppCompatActivity {
                 
                 PyObject pyData = locMap.get(py.getBuiltins().get("str").call("data"));
                 String dataJson = (pyData != null) ? pyData.toString() : "[]";
+                
+                PyObject pySummary = locMap.get(py.getBuiltins().get("str").call("summary"));
+                lastSpatialSummary = (pySummary != null) ? pySummary.toString() : null;
 
                 if ("success".equals(status) && dataJson.length() > 5) {
                     File tempFile = new File(getCacheDir(), "same_loc_results.json");
@@ -925,6 +1052,7 @@ public class MainActivity extends AppCompatActivity {
 
         locationInput.setText(""); searchCdrInput.setText(""); selectedFilePaths.clear();
         lastGeneratedReportPath = null; lastPreviewRows = null; lastGraphData = null;
+        lastSummaryHtml = null; lastSpatialSummary = null;
         resultsContainer.setVisibility(View.GONE); loadingContainer.setVisibility(View.GONE);
         btnLinkAnalysis.setVisibility(View.GONE); btnSameLocation.setVisibility(View.GONE);
         loadingLogo.clearAnimation(); rippleEffect.clearAnimation();
