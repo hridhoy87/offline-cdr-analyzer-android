@@ -34,19 +34,36 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
         alias_db = {}
         if alias_database:
             try:
+                # In Chaquopy, alias_database might be a Java Map
                 for k in alias_database:
                     alias_db[str(k)] = str(alias_database[k])
             except:
                 pass
+        
+        # If no alias_database passed, try to use the one from graph_data
+        if not alias_db and "alias_map" in main_data:
+            alias_db = main_data["alias_map"]
+
+        def format_with_alias_html(val):
+            s_val = str(val).strip()
+            # If it already has an alias in it, just return it (already formatted by index.py)
+            if "(📌" in s_val:
+                return f"<b>{s_val}</b>"
+            if s_val in alias_db:
+                return f"<b>{s_val}(📌 {alias_db[s_val]})</b>"
+            return s_val
 
         def format_bold_aliases(text):
             if not text: return ""
-            t = str(text).replace('📌 ', '').replace('🎯 ', '').replace('🌙 ', '').replace('🔗 ', '')
-            t = t.replace('<br/>', '\n').replace('<br>', '\n')
-            for num, name in alias_db.items():
-                match = f"{name} [{num}]"
-                if match in t: t = t.replace(match, f"<b>{match}</b>")
-                elif num in t: t = t.replace(num, f"<b>{num}</b>")
+            # Clean text but preserve formatting
+            t = str(text).replace('<br/>', '\n').replace('<br>', '\n')
+            # Look for numbers and replace with alias if found
+            import re
+            # Regex for 11 digit numbers or potential IMEIs
+            for num, alias in alias_db.items():
+                pattern = re.compile(re.escape(num))
+                t = pattern.sub(f"<b>{num}(📌 {alias})</b>", t)
+            
             return t.replace('\n', '<br/>')
 
         # --- SECTION 2: LINK CORRELATION ---
@@ -64,16 +81,11 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             for idx, item in enumerate(common_links_list, 1):
                 cbp = item.get("target")
                 aps = item.get("source", [])
-                bolded_aps = []
-                for a in aps:
-                    raw = str(a).replace('📌 ', '').split(' [')[0].strip() if ' [' in str(a) else str(a).replace('📌 ', '').strip()
-                    bolded_aps.append(f"<b>{alias_db[raw]} [{raw}]</b>" if raw in alias_db else str(a))
+                bolded_aps = [format_with_alias_html(a) for a in aps]
                 
                 profile = node_profiles.get(str(cbp), {})
                 hits = profile.get("total", "N/A")
-                disp = str(cbp)
-                for n, name in alias_db.items():
-                    if n in disp: disp = f"<b>{name} [{n}]</b>"; break
+                disp = format_with_alias_html(cbp)
 
                 link_analysis_html += f"<tr><td>{idx}</td><td>{disp}</td><td>{', '.join(bolded_aps)}</td><td><b>{hits}</b></td></tr>"
             link_analysis_html += "</tbody></table>"
@@ -83,16 +95,16 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
         if sim_to_imei_map:
             device_html += "<h2>📡 Subscriber SIM Index</h2><table class=\"forensic-table\"><thead><tr><th>SIM</th><th>Associated IMEIs</th></tr></thead><tbody>"
             for sim, records in sim_to_imei_map.items():
-                imeis = "".join([f"• {r.get('imei','N/A')} ({r.get('hw','Generic')})<br/>" for r in records])
-                disp = f"<b>{alias_db[sim]} [{sim}]</b>" if sim in alias_db else sim
+                imeis = "".join([f"• {format_with_alias_html(r.get('imei','N/A'))} ({r.get('hw','Generic')})<br/>" for r in records])
+                disp = format_with_alias_html(sim)
                 device_html += f"<tr><td>{disp}</td><td>{imeis}</td></tr>"
             device_html += "</tbody></table>"
         
         if imei_to_sim_map:
             device_html += "<h2>🛡️ Handset Core Index</h2><table class=\"forensic-table\"><thead><tr><th>Model</th><th>IMEI</th><th>Linked SIMs</th></tr></thead><tbody>"
             for imei, info in imei_to_sim_map.items():
-                sims = ", ".join([f"<b>{alias_db[s]} [{s}]</b>" if s in alias_db else s for s in info.get("sims", [])])
-                device_html += f"<tr><td><b>{info.get('hardware','Generic')}</b></td><td>{imei}</td><td>{sims}</td></tr>"
+                sims = ", ".join([format_with_alias_html(s) for s in info.get("sims", [])])
+                device_html += f"<tr><td><b>{info.get('hardware','Generic')}</b></td><td>{format_with_alias_html(imei)}</td><td>{sims}</td></tr>"
             device_html += "</tbody></table>"
 
         # --- SECTION 4: TELEMETRY LOGS ---
@@ -102,8 +114,8 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
         else:
             for row in preview_rows[:100]:
                 ap, bp = row.get('ap', ''), row.get('bp', '')
-                ad = f"<b>{alias_db[ap]} [{ap}]</b>" if ap in alias_db else ap
-                bd = f"<b>{alias_db[bp]} [{bp}]</b>" if bp in alias_db else bp
+                ad = format_with_alias_html(ap)
+                bd = format_with_alias_html(bp)
                 logs_html += f"<tr><td>{row.get('dt','')}</td><td>{ad}</td><td>{bd}</td><td>{row.get('freq','')}</td><td>{row.get('loc','')}</td></tr>"
         logs_html += "</tbody></table>"
 
@@ -121,8 +133,8 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             spatial_html = "<table class=\"forensic-table\"><thead><tr><th>Time</th><th>Ap</th><th>Bp</th><th>LAC</th><th>Cell</th><th>Address</th><th>Reason</th></tr></thead><tbody>"
             for row in sl_data[:500]:
                 ap, bp = row.get('A_Party', ''), row.get('B_Party', '')
-                ad = f"<b>{alias_db[ap]} [{ap}]</b>" if ap in alias_db else ap
-                bd = f"<b>{alias_db[bp]} [{bp}]</b>" if bp in alias_db else bp
+                ad = format_with_alias_html(ap)
+                bd = format_with_alias_html(bp)
                 spatial_html += f"<tr><td>{row.get('Time','')}</td><td>{ad}</td><td>{bd}</td><td>{row.get('LAC','')}</td><td>{row.get('Cell','')}</td><td>{row.get('BTS_Loc','')}</td><td>{row.get('Reason','')}</td></tr>"
             spatial_html += "</tbody></table>"
 

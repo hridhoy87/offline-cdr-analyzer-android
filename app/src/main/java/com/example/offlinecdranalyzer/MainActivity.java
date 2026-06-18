@@ -58,6 +58,9 @@ import android.widget.ProgressBar;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
+import org.json.JSONObject;
+import java.util.Iterator;
+import android.widget.ScrollView;
 import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -111,6 +114,7 @@ public class MainActivity extends AppCompatActivity {
     
     private Calendar filterStartCal = null;
     private Calendar filterEndCal = null;
+    private java.util.HashMap<String, String> aliasMap = new java.util.HashMap<>();
 
     private Thread backgroundAnalysisThread = null;
     private boolean isAnalysisReady = false;
@@ -168,6 +172,7 @@ public class MainActivity extends AppCompatActivity {
             Python.start(new AndroidPlatform(this));
         }
 
+        loadAliasesFromJson();
         cleanCache();
         ensureReportDirectory();
         showWelcomeDialog();
@@ -221,6 +226,9 @@ public class MainActivity extends AppCompatActivity {
             popup.setOnMenuItemClickListener(item -> {
                 if (item.getItemId() == R.id.action_about) {
                     showAboutDialog();
+                    return true;
+                } else if (item.getItemId() == R.id.action_edit_aliases) {
+                    showEditAliasesDialog();
                     return true;
                 } else if (item.getItemId() == R.id.action_update) {
                     showUpdateBanner();
@@ -369,6 +377,9 @@ public class MainActivity extends AppCompatActivity {
         if (item.getItemId() == R.id.action_about) {
             showAboutDialog();
             return true;
+        } else if (item.getItemId() == R.id.action_edit_aliases) {
+            showEditAliasesDialog();
+            return true;
         } else if (item.getItemId() == R.id.action_save_pdf) {
             generatePdfReport();
             return true;
@@ -433,7 +444,7 @@ public class MainActivity extends AppCompatActivity {
                         summary,
                         lastGraphData, // Pass unified JSON string
                         sameLocJson,
-                        null, // alias_database
+                        aliasMap,
                         locReq,
                         timeline,
                         cdrNames.toArray(new String[0]),
@@ -485,6 +496,163 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         printManager.print(jobName, printAdapter, attributes);
+    }
+
+    private void showEditAliasesDialog() {
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_edit_aliases, null);
+        EditText editNumber = dialogView.findViewById(R.id.editNumber);
+        EditText editAlias = dialogView.findViewById(R.id.editAlias);
+        Button btnAdd = dialogView.findViewById(R.id.btnAddAlias);
+        LinearLayout containerList = dialogView.findViewById(R.id.containerAliasList);
+
+        // Track editing state
+        final String[] editingNumber = {null};
+
+        updateAliasDisplayList(containerList, editNumber, editAlias, btnAdd, editingNumber);
+
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setView(dialogView)
+                .setPositiveButton("Done", (d, w) -> hideKeyboard(editNumber))
+                .create();
+
+        btnAdd.setOnClickListener(v -> {
+            String num = editNumber.getText().toString().trim();
+            String alias = editAlias.getText().toString().trim();
+
+            if (num.isEmpty() || alias.isEmpty()) {
+                Toast.makeText(this, "Enter valid number and alias", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (editingNumber[0] != null && !editingNumber[0].equals(num)) {
+                aliasMap.remove(editingNumber[0]);
+            }
+
+            aliasMap.put(num, alias);
+            saveAliasesToJson();
+            
+            editingNumber[0] = null;
+            btnAdd.setText("+");
+            editNumber.setText("");
+            editAlias.setText("");
+            hideKeyboard(v);
+            
+            updateAliasDisplayList(containerList, editNumber, editAlias, btnAdd, editingNumber);
+            Toast.makeText(this, "Alias saved", Toast.LENGTH_SHORT).show();
+        });
+
+        dialog.show();
+    }
+
+    private void updateAliasDisplayList(LinearLayout container, EditText editNum, EditText editAl, Button btnAdd, String[] editingNumber) {
+        container.removeAllViews();
+        if (aliasMap.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("No aliases defined.");
+            empty.setPadding(20, 20, 20, 20);
+            container.addView(empty);
+            return;
+        }
+
+        for (Map.Entry<String, String> entry : aliasMap.entrySet()) {
+            View itemView = getLayoutInflater().inflate(R.layout.item_alias, null);
+            TextView txtName = itemView.findViewById(R.id.txtAliasName);
+            TextView txtNum = itemView.findViewById(R.id.txtAliasNumber);
+            ImageButton btnEdit = itemView.findViewById(R.id.btnEditAlias);
+            ImageButton btnDelete = itemView.findViewById(R.id.btnDeleteAlias);
+
+            String number = entry.getKey();
+            String alias = entry.getValue();
+
+            txtName.setText(alias);
+            txtNum.setText(number);
+
+            btnEdit.setOnClickListener(v -> {
+                editNum.setText(number);
+                editAl.setText(alias);
+                editingNumber[0] = number;
+                btnAdd.setText("Update");
+                editNum.requestFocus();
+            });
+
+            btnDelete.setOnClickListener(v -> {
+                new AlertDialog.Builder(this)
+                        .setTitle("Delete Alias")
+                        .setMessage("Are you sure you want to delete alias for " + number + "?")
+                        .setPositiveButton("Delete", (d, w) -> {
+                            aliasMap.remove(number);
+                            saveAliasesToJson();
+                            updateAliasDisplayList(container, editNum, editAl, btnAdd, editingNumber);
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            });
+
+            container.addView(itemView);
+        }
+    }
+
+    private void saveAliasesToJson() {
+        try {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
+            if (!dir.exists()) dir.mkdirs();
+            File file = new File(dir, "aliases_metadata.json");
+            
+            JSONObject json = new JSONObject();
+            for (Map.Entry<String, String> entry : aliasMap.entrySet()) {
+                json.put(entry.getKey(), entry.getValue());
+            }
+            
+            FileOutputStream fos = new FileOutputStream(file);
+            fos.write(json.toString(4).getBytes());
+            fos.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+            Toast.makeText(this, "Error saving aliases: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void loadAliasesFromJson() {
+        try {
+            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
+            if (!dir.exists()) dir.mkdirs();
+            File file = new File(dir, "aliases_metadata.json");
+
+            String str = null;
+            if (file.exists()) {
+                java.io.FileInputStream fis = new java.io.FileInputStream(file);
+                byte[] data = new byte[(int) file.length()];
+                fis.read(data);
+                fis.close();
+                str = new String(data, "UTF-8");
+            } else {
+                // If it doesn't exist in Documents, try to load the default from assets
+                try {
+                    java.io.InputStream is = getAssets().open("aliases_metadata.json");
+                    int size = is.available();
+                    byte[] buffer = new byte[size];
+                    is.read(buffer);
+                    is.close();
+                    str = new String(buffer, "UTF-8");
+                    // Save it to Documents immediately for future persistence
+                    saveAliasesToJson(); 
+                } catch (Exception assetEx) {
+                    return; // No assets file either
+                }
+            }
+
+            if (str != null) {
+                JSONObject json = new JSONObject(str);
+                aliasMap.clear();
+                Iterator<String> keys = json.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    aliasMap.put(key, json.getString(key));
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void showAboutDialog() {

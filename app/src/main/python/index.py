@@ -30,18 +30,47 @@ def lookup_imei(imei):
     except: pass
     return None
 
+def load_aliases():
+    try:
+        # Search for metadata in common Android Documents paths
+        possible_paths = [
+            "/storage/emulated/0/Documents/CDR_Reports/aliases_metadata.json",
+            os.path.join(os.environ.get("HOME", ""), "Documents/CDR_Reports/aliases_metadata.json"),
+            os.path.join(os.path.dirname(__file__), "aliases_metadata.json")
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                # Using builtins.open explicitly to avoid resolution issues in some environments
+                import builtins
+                with builtins.open(p, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def format_with_alias(val, alias_map):
+    s_val = str(val).strip()
+    if s_val in alias_map:
+        return f"{s_val}(📌 {alias_map[s_val]})"
+    return s_val
+
 def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, end_ts=None):
     try:
         if not file_paths: return {"status": "error", "message": "No files selected."}
+        alias_map = load_aliases()
         all_dataframes, number_source_map = [], {}
         is_single_file = (len(list(file_paths)) == 1)
 
-        def clean_phone_number(val):
+        def clean_phone_number(val, is_b_party=False):
             val_str = str(val).strip().split('.')[0]
             if val_str.startswith('+88'): val_str = val_str[3:]
             elif val_str.startswith('88'): val_str = val_str[2:]
-            val_str = "".join(c for c in val_str if c.isdigit())
-            return val_str if val_str not in ['nan', 'None', ''] else ''
+            digits_only = "".join(c for c in val_str if c.isdigit())
+            if len(digits_only) == 11:
+                return digits_only
+            if val_str in ['nan', 'None', '', 'nan.0']:
+                return "[?] Unknown"
+            return f"[?] {val_str}"
 
         for path in file_paths:
             if not os.path.exists(path): continue
@@ -51,11 +80,15 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                 df = excel_file.parse(sheet_name=excel_file.sheet_names[0], dtype=str)
                 if not df.empty and len(df.columns) >= 4:
                     col_D_name = df.columns[3]
-                    df_clean_temp = df[col_D_name].apply(clean_phone_number)
+                    def get_only_valid(v):
+                        c = "".join(i for i in str(v).split('.')[0] if i.isdigit())
+                        if c.startswith('88'): c = c[2:]
+                        if c.startswith('880'): c = c[3:]
+                        return c if len(c) == 11 else None
+                    df_clean_temp = df[col_D_name].apply(get_only_valid)
                     for num in df_clean_temp.dropna().unique():
-                        if num and len(num) == 11:
-                            if num not in number_source_map: number_source_map[num] = set()
-                            number_source_map[num].add(filename)
+                        if num not in number_source_map: number_source_map[num] = set()
+                        number_source_map[num].add(filename)
                     all_dataframes.append(df)
             except: continue
 
@@ -65,77 +98,62 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
 
         col_A, col_C, col_D, col_E, col_F, col_H, col_I, col_J, col_L = combined_df.columns[0], combined_df.columns[2], combined_df.columns[3], combined_df.columns[4], combined_df.columns[5], combined_df.columns[7], combined_df.columns[8], combined_df.columns[9], combined_df.columns[11]
 
-        # Time range filtering
         if start_ts and end_ts:
             temp_time = pd.to_datetime(combined_df[col_A], errors='coerce')
             mask = (temp_time >= pd.to_datetime(start_ts)) & (temp_time <= pd.to_datetime(end_ts))
             combined_df = combined_df[mask]
-            if combined_df.empty: return {"status": "error", "message": "No data in selected timeline."}
+            if combined_df.empty: return {"status": "error", "message": "No data in timeline."}
 
         combined_df[col_C] = combined_df[col_C].apply(clean_phone_number)
         combined_df[col_D] = combined_df[col_D].apply(clean_phone_number)
         for col in [col_F, col_H, col_I, col_L, col_J]: combined_df[col] = combined_df[col].fillna('').astype(str).str.strip().replace('nan', '')
         for col in [col_H, col_I, col_J]: combined_df[col] = combined_df[col].apply(lambda x: str(x).split('.')[0])
-        combined_df = combined_df[(combined_df[col_C].str.len() == 11) & (combined_df[col_D].str.len() == 11)]
         if combined_df.empty: return {"status": "error", "message": "0 valid rows remaining."}
 
-        # New: Robust Common B-Party identification based on A-Party diversity
-        b_to_as = combined_df.groupby(col_D)[col_C].nunique()
+        analysis_df = combined_df[ (~combined_df[col_C].str.startswith('[?]', na=False)) & (~combined_df[col_D].str.startswith('[?]', na=False)) ]
+        b_to_as = analysis_df.groupby(col_D)[col_C].nunique()
         extracted_common = b_to_as[b_to_as > 1].index.tolist()
 
-        def safe_datetime_parser(series):
-            return pd.to_datetime(series, errors='coerce')
-
-        raw_datetime_series = safe_datetime_parser(combined_df[col_A])
-        # Enrich combined_df with parsed datetime for accurate profile min/max
-        combined_df['_parsed_dt'] = raw_datetime_series
+        def safe_datetime_parser(series): return pd.to_datetime(series, errors='coerce')
+        combined_df['_parsed_dt'] = safe_datetime_parser(combined_df[col_A])
         
         unique_a_parties = [num for num in combined_df[col_C].unique() if num and str(num) != 'nan']
-        summary_a_parties_str = ", ".join(unique_a_parties)
+        summary_a_parties_str = ", ".join([format_with_alias(n, alias_map) for n in unique_a_parties])
 
         raw_imei_clean = combined_df[(combined_df[col_J] != '') & (combined_df[col_C] != '')]
         target_imei_counts = raw_imei_clean.groupby(col_C)[col_J].nunique().to_dict()
-        true_swapped = [f"{n} ({c} profiles)" for n, c in target_imei_counts.items() if c >= 3]
+        true_swapped = [f"{format_with_alias(n, alias_map)} ({c} profiles)" for n, c in target_imei_counts.items() if c >= 3]
         summary_imei_swappers_str = f"IMEI Swappers: {', '.join(true_swapped)}" if true_swapped else "Hardware Stability: No device swapping observed."
 
         imei_sim_mapping = raw_imei_clean.groupby(col_J)[col_C].nunique().to_dict()
-        true_multi = [f"Handset {i} ({s} numbers)" for i, s in imei_sim_mapping.items() if s >= 3]
+        true_multi = [f"Handset {format_with_alias(i, alias_map)} ({s} numbers)" for i, s in imei_sim_mapping.items() if s >= 3]
         summary_multi_sim_str = f"Multi-SIM Burners: {', '.join(true_multi)}" if true_multi else "Device Identity: No multi-SIM handset anomalies."
 
-        # NEW: IMEI to SIM Mapping (Sharing only, as per requirement)
         imei_to_aps = raw_imei_clean.groupby(col_J)[col_C].unique().apply(list).to_dict()
         detailed_imei_map = {str(imei): [str(a) for a in aps] for imei, aps in imei_to_aps.items() if len(aps) > 1}
 
-        # NEW: SIM to IMEI Mapping for 3D Visualization
-        # Filter for A-Parties who have more than one IMEI signature
         ap_to_imeis = raw_imei_clean.groupby(col_C)[col_J].unique().apply(list).to_dict()
-        sim_to_imei_data = {
-            "links": [],
-            "nodes": []
-        }
+        sim_to_imei_data = {"links": [], "nodes": []}
         seen_nodes = set()
         for ap, imeis in ap_to_imeis.items():
             if len(imeis) > 1:
                 sap = str(ap)
                 if sap not in seen_nodes:
-                    sim_to_imei_data["nodes"].append({"id": sap, "type": "SIM"})
+                    sim_to_imei_data["nodes"].append({"id": sap, "type": "SIM", "alias": alias_map.get(sap, "")})
                     seen_nodes.add(sap)
                 for imei in imeis:
                     simei = str(imei)
                     if simei not in seen_nodes:
-                        sim_to_imei_data["nodes"].append({"id": simei, "type": "IMEI"})
+                        sim_to_imei_data["nodes"].append({"id": simei, "type": "IMEI", "alias": alias_map.get(simei, "")})
                         seen_nodes.add(simei)
                     sim_to_imei_data["links"].append({"source": sap, "target": simei})
 
-        night_stays_list, deep_night_count, total_night_count, valid_times, raw_night_indices = [], 0, 0, 0, []
-        for idx, ts in enumerate(raw_datetime_series):
+        night_stays_list, deep_night_count, total_night_count, raw_night_indices = [], 0, 0, []
+        for idx, ts in enumerate(combined_df['_parsed_dt']):
             if pd.notnull(ts):
-                valid_times += 1
                 if ts.hour >= 18 or ts.hour < 6: 
-                    raw_night_indices.append(idx)
-                    total_night_count += 1
-                if 1 <= ts.hour <= 4: 
-                    deep_night_count += 1
+                    raw_night_indices.append(idx); total_night_count += 1
+                if 1 <= ts.hour <= 4: deep_night_count += 1
 
         if raw_night_indices:
             valid_locs = combined_df.iloc[raw_night_indices][col_L].astype(str).str.strip()
@@ -156,31 +174,36 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             if keywords: final_condition = combined_df[col_L].str.lower().apply(lambda val: any(k in val for k in keywords))
 
         filtered_df = combined_df[final_condition].copy()
-        if filtered_df.empty: return {"status": "error", "message": "No rows matched constraints."}
+        if filtered_df.empty: return {"status": "error", "message": "No rows match."}
+        
+        valid_b_mask = ~filtered_df[col_D].str.startswith('[?]', na=False)
         filtered_df[col_E] = pd.to_numeric(filtered_df[col_E], errors="coerce").fillna(0)
-        filtered_df["Frequency"] = filtered_df[col_D].map(filtered_df[col_D].value_counts())
-        filtered_df[col_E] = filtered_df[col_D].map(filtered_df.groupby(col_D)[col_E].sum()) / 60
-        filtered_df[col_E] = filtered_df[col_E].round(2)
+        freq_map = filtered_df[valid_b_mask][col_D].value_counts()
+        dur_map = filtered_df[valid_b_mask].groupby(col_D)[col_E].sum() / 60
+        
+        filtered_df["Frequency"] = filtered_df[col_D].map(freq_map).fillna(0).astype(int)
+        filtered_df["Duration_Mins"] = filtered_df[col_D].map(dur_map).fillna(0).round(2)
 
         if is_single_file:
             summary_common_b_str = "N/A (Single File)"
         else:
-            summary_common_b_str = ", ".join(extracted_common) if extracted_common else "None"
+            summary_common_b_str = ", ".join([format_with_alias(n, alias_map) for n in extracted_common]) if extracted_common else "None"
             filtered_df["Common?"] = filtered_df[col_D].apply(lambda x: "Yes" if x in extracted_common else "No")
 
         filtered_df["Has_Multiple_IMEI"] = filtered_df[col_C].apply(lambda x: "Yes" if target_imei_counts.get(x, 0) >= 3 else "No")
-        filtered_df = filtered_df.drop_duplicates(subset=[col_D], keep="first")
-        filtered_df[col_A] = safe_datetime_parser(filtered_df[col_A])
-        # Sort by Time Descending (Requirement 2c and 3)
-        filtered_df = filtered_df.sort_values(by=[col_A], ascending=False)
-        filtered_df[col_A] = filtered_df[col_A].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notnull(x) else "")
+        
+        display_df = filtered_df.drop_duplicates(subset=[col_D], keep="first").copy()
+        display_df[col_A] = safe_datetime_parser(display_df[col_A])
+        display_df = display_df.sort_values(by=[col_A], ascending=False)
+        display_df[col_A] = display_df[col_A].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notnull(x) else "")
 
         top_b_data = []
-        for _, row in filtered_df.head(10).iterrows():
-            top_b_data.append({"b_party": str(row[col_D]), "frequency": str(row["Frequency"]), "last_called": str(row[col_A])})
+        for _, row in display_df[~display_df[col_D].str.startswith('[?]', na=False)].head(10).iterrows():
+            top_b_data.append({"b_party": format_with_alias(row[col_D], alias_map), "frequency": str(row["Frequency"]), "last_called": str(row[col_A])})
 
         area_clusters = [{"area": str(k), "count": int(v)} for k, v in combined_df[col_L].value_counts().head(12).items() if str(k).strip() != '' and str(k).lower() != 'nan']
-        preview_data = [{"dt": str(row[col_A]), "ap": str(row[col_C]), "bp": str(row[col_D]), "freq": str(row["Frequency"]), "loc": str(row[col_L])} for _, row in filtered_df.head(50).iterrows()]
+        
+        preview_data = [{"dt": str(row[col_A]), "ap": format_with_alias(row[col_C], alias_map), "bp": format_with_alias(row[col_D], alias_map), "freq": str(row["Frequency"]), "loc": str(row[col_L])} for _, row in display_df.head(100).iterrows()]
 
         hourly_activity = {}
         for a_p in unique_a_parties:
@@ -197,7 +220,11 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                 "Intelligence": [summary_a_parties_str, ", ".join([i["b_party"] for i in top_b_data]), summary_night_stays_str, summary_common_b_str, summary_imei_swappers_str, summary_multi_sim_str, summary_night_routine_str]
             }
             pd.DataFrame(vertical_summary).astype(str).to_excel(writer, sheet_name="Summary", index=False)
-            filtered_df.astype(str).to_excel(writer, sheet_name="Data", index=False)
+            
+            excel_df = filtered_df.copy()
+            excel_df[col_C] = excel_df[col_C].apply(lambda x: format_with_alias(x, alias_map))
+            excel_df[col_D] = excel_df[col_D].apply(lambda x: format_with_alias(x, alias_map))
+            excel_df.astype(str).to_excel(writer, sheet_name="Data", index=False)
             for ws in [writer.sheets["Summary"], writer.sheets["Data"]]:
                 for row in ws.iter_rows():
                     for cell in row: cell.number_format = "@"
@@ -205,7 +232,6 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         a_areas = combined_df.groupby(col_C)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
         b_areas = combined_df.groupby(col_D)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
         
-        # Build node profiles for link analysis
         node_profiles = {}
         for a_p in unique_a_parties:
             a_df = combined_df[combined_df[col_C] == a_p]
@@ -214,10 +240,10 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                 "total": len(a_df),
                 "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
                 "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                "top_loc": str(a_areas.get(a_p, "Unknown"))
+                "top_loc": str(a_areas.get(a_p, "Unknown")),
+                "alias": alias_map.get(str(a_p), "")
             }
         
-        # Also add profiles for B-parties
         all_bps = combined_df[col_D].unique()
         for b_p in all_bps:
             sbp = str(b_p)
@@ -228,10 +254,10 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     "total": len(b_df),
                     "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
                     "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                    "top_loc": str(b_areas.get(b_p, "Unknown"))
+                    "top_loc": str(b_areas.get(b_p, "Unknown")),
+                    "alias": alias_map.get(sbp, "")
                 }
 
-        # NEW: IMEI to SIM Mapping (Strict sharing only: >1 SIM)
         imei_to_aps = raw_imei_clean.groupby(col_J)[col_C].unique().apply(list).to_dict()
         detailed_imei_map = {}
         for imei, aps in imei_to_aps.items():
@@ -239,38 +265,15 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                 hw_info = lookup_imei(imei)
                 detailed_imei_map[str(imei)] = {
                     "sims": [str(a) for a in aps],
-                    "hardware": hw_info if hw_info else "Unknown Device"
+                    "hardware": hw_info if hw_info else "Unknown Device",
+                    "alias": alias_map.get(str(imei), "")
                 }
 
-        # NEW: SIM to IMEI Mapping (Complete mapping for all A-Parties)
-        ap_to_imeis = raw_imei_clean.groupby(col_C)[col_J].unique().apply(list).to_dict()
-        # Include ALL unique A-parties, not just swappers
-        sim_to_imei_map = {str(ap): [{"imei": str(i), "hw": lookup_imei(i) or "Generic Handset"} for i in imeis] for ap, imeis in ap_to_imeis.items() if str(ap) != 'nan'}
+        sim_to_imei_map = {str(ap): [{"imei": str(i), "hw": lookup_imei(i) or "Generic Handset", "alias": alias_map.get(str(i), "")} for i in imeis] for ap, imeis in ap_to_imeis.items() if str(ap) != 'nan'}
         
-        sim_to_imei_data = {"links": [], "nodes": []}
-        seen_nodes = set()
-        for ap, imeis in ap_to_imeis.items():
-            if len(imeis) > 1: # Keep 3D visualization focused on clusters (swappers)
-                sap = str(ap)
-                if sap not in seen_nodes:
-                    sim_to_imei_data["nodes"].append({"id": sap, "type": "SIM"})
-                    seen_nodes.add(sap)
-                for imei in imeis:
-                    simei = str(imei)
-                    hw_info = lookup_imei(imei)
-                    if simei not in seen_nodes:
-                        sim_to_imei_data["nodes"].append({
-                            "id": simei, 
-                            "type": "IMEI",
-                            "hw": hw_info if hw_info else "Generic Handset"
-                        })
-                        seen_nodes.add(simei)
-                    sim_to_imei_data["links"].append({"source": sap, "target": simei})
-
         common_nums = set(extracted_common) if not is_single_file else set()
         uncommon_map = {a: [] for a in unique_a_parties}
         common_map = {}
-        # Use combined_df to build link maps to avoid missing relationships due to deduplication
         for _, row in combined_df.iterrows():
             a, b = str(row[col_C]), str(row[col_D])
             if b in common_nums:
@@ -279,7 +282,6 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             else:
                 if b not in uncommon_map[a]: uncommon_map[a].append(b)
         
-        # Deduplicate uncommon links for cleaner graph
         for a in uncommon_map: uncommon_map[a] = list(set(uncommon_map[a]))
 
         graph_data = json.dumps({
@@ -292,7 +294,8 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             "imei_to_sim_map": detailed_imei_map,
             "sim_to_imei_graph": sim_to_imei_data,
             "sim_to_imei_map": sim_to_imei_map,
-            "preview_rows": preview_data
+            "preview_rows": preview_data,
+            "alias_map": alias_map
         }, ensure_ascii=False)
 
         return {"status": "success", "output_path": output_excel_path, "metrics": {"a_parties": summary_a_parties_str, "top_b_parties": top_b_data, "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_str, "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str, "night_routine": summary_night_routine_str, "area_clusters": area_clusters, "hourly_activity": hourly_activity, "preview_rows": preview_data, "graph_data": graph_data}}
@@ -314,6 +317,7 @@ def export_same_location_to_excel(json_data, output_path):
 def search_cdr_data(file_paths, search_query):
     try:
         if not file_paths: return {"status": "error", "message": "No files."}
+        alias_map = load_aliases()
         terms = [s.strip() for s in str(search_query).split(",") if s.strip()]
         all_dfs = []
         for path in file_paths:
@@ -321,51 +325,41 @@ def search_cdr_data(file_paths, search_query):
             try:
                 df = pd.read_excel(path, engine="openpyxl", dtype=str)
                 if df.empty or len(df.columns) < 12: continue
-                # Identify A-party for this file context
                 nums = df[df.columns[2]].apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:]).unique()
                 a_party = nums[-1] if len(nums) > 0 else "Unknown"
-                
                 df['_internal_a'] = a_party
                 df['_internal_time'] = pd.to_datetime(df[df.columns[0]], errors='coerce')
                 df['_internal_loc'] = df[df.columns[11]].fillna('').astype(str).str.strip()
                 all_dfs.append(df)
             except: continue
-            
         if not all_dfs: return {"status": "error", "message": "No data extracted."}
         combined = pd.concat(all_dfs, ignore_index=True)
         dialog_lines = []
-        
         for term in terms:
             mask = combined.astype(str).apply(lambda col: col.str.contains(term, case=False, na=False)).any(axis=1)
             match_df = combined[mask]
-            
             if match_df.empty:
                 dialog_lines.append(f"<font color='#E53E3E'><b>Term: {term}</b></font><br/>&nbsp;&nbsp;Status: <i>Not Found in Database</i>")
             else:
-                # Identify which columns matched
                 hit_cols = []
                 for col in combined.columns:
                     if not str(col).startswith('_internal'):
                         if match_df[col].astype(str).str.contains(term, case=False, na=False).any():
                             hit_cols.append(str(col))
-                
                 suspects = sorted(list(set(match_df['_internal_a'].astype(str).tolist())))
                 hours = match_df['_internal_time'].dt.hour
                 night_count = len(hours[(hours >= 18) | (hours < 6)])
                 intensity = "Night Heavy" if night_count > len(match_df)/2 else "Day Heavy"
-                
                 locs = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3)
                 loc_str = ", ".join(locs.index) if not locs.empty else "N/A"
-                
                 res = [
                     f"<b>Term: <font color='#3182CE'>{term}</font></b>",
-                    f"• Linked Suspects: {', '.join(suspects)}",
+                    f"• Linked Suspects: {', '.join([format_with_alias(s, alias_map) for s in suspects])}",
                     f"• Match Found In: {', '.join(hit_cols[:3])}",
                     f"• Frequency: {len(match_df)} hits ({intensity})",
                     f"• Top Locations: {loc_str}"
                 ]
                 dialog_lines.append("<br/>".join(res))
-                
         return {"status": "success", "summary_html": "<br/><br/>".join(dialog_lines)}
     except Exception as e: return {"status": "error", "message": str(e)}
 
@@ -389,9 +383,8 @@ def crop_cdr_data(file_paths, location_query, start_ts, end_ts, output_dir):
 
 def same_location_analysis(file_paths, progress_callback=None):
     try:
-        # Robustly extract paths from the iterable passed by Chaquopy
         paths = [str(p).strip() for p in file_paths if p and str(p) != 'None' and len(str(p)) > 5]
-        
+        alias_map = load_aliases()
         if len(paths) < 2:
             return {"status": "error", "message": f"Need at least 2 CDRs. Found: {len(paths)} valid files."}
         all_data = []
@@ -412,10 +405,8 @@ def same_location_analysis(file_paths, progress_callback=None):
         if len(all_data) < 2: return {"status": "error", "message": "Insufficient valid data."}
         combined = pd.concat(all_data, ignore_index=True).dropna(subset=['D', 'A'])
         results = []
-        
         unique_days = sorted(combined['D'].unique())
         total_days = len(unique_days)
-        
         for i, d in enumerate(unique_days):
             day_df = combined[combined['D'] == d]
             if day_df['A'].nunique() < 2: 
@@ -438,81 +429,43 @@ def same_location_analysis(file_paths, progress_callback=None):
                                 rows = day_df[(day_df['A'].isin([ap1, ap2])) & (day_df['Loc'].isin([ad1, ad2]))]
                                 for _, r in rows.iterrows():
                                     results.append({"Time": r['S'], "A_Party": r['A'], "B_Party": r['B'], "LAC": r['L'], "Cell": r['C'], "BTS_Loc": r['Loc'], "Reason": "Tower Similarity (>70%)"})
-            
             if progress_callback:
                 progress_callback.onProgress(int((i + 1) / total_days * 100))
 
         if not results: return {"status": "success", "data": "[]", "summary": "No spatial overlaps detected."}
-        
         final_df = pd.DataFrame(results).drop_duplicates(subset=['Time', 'A_Party'])
-        
-        # --- Generate Crisp Spatial Summary ---
         try:
-            # We round time to 30-minute buckets for grouping the summary
-            # but we use the actual Time for the list of timestamps.
             summary_df = final_df.copy()
             summary_df['_dt'] = pd.to_datetime(summary_df['Time'], errors='coerce')
             summary_df = summary_df.dropna(subset=['_dt'])
-            
-            # Floor to 30 minutes to catch people "around each other"
             summary_df['_bucket'] = summary_df['_dt'].dt.floor('30T')
-            
-            # Group by 30-min window and location identifiers
-            # If multiple parties are in the same 30min window at the same tower/LAC
             groups = summary_df.groupby(['_bucket', 'LAC', 'Cell', 'BTS_Loc'])['A_Party'].unique()
-            
-            # set_counts: { "Party A & Party B": [list of actual timestamps] }
-            set_counts = {}
-            for parties in groups:
-                if len(parties) < 2: continue
-                
-                # Create a stable key for this group of people
-                p_list = sorted([str(p) for p in parties])
-                p_key = " and ".join(p_list) if len(p_list) == 2 else ", ".join(p_list[:-1]) + " and " + p_list[-1]
-                
-                if p_key not in set_counts: set_counts[p_key] = []
-                
-                # Find the representative times for this bucket in the original data
-                mask = (summary_df['_bucket'] == groups.index[0][0]) # This logic was flawed before
-            
-            # Better approach: Iterate with index
             set_counts = {}
             for idx, parties in groups.items():
-                if len(parties) < 2:
-                    continue
-                
-                p_list = sorted([str(p) for p in parties])
+                if len(parties) < 2: continue
+                p_list = sorted([format_with_alias(p, alias_map) for p in parties])
                 p_key = " and ".join(p_list) if len(p_list) == 2 else ", ".join(p_list[:-1]) + " and " + p_list[-1]
-                
-                if p_key not in set_counts:
-                    set_counts[p_key] = set()
-                
-                # Add a representative timestamp for this overlap event
-                # We'll take the time from the index (the bucket)
+                if p_key not in set_counts: set_counts[p_key] = set()
                 set_counts[p_key].add(idx[0].strftime("%d/%m/%y %H:%M"))
-
             summary_lines = []
             import string
-            labels = list(string.ascii_lowercase)
-            
-            # Sort by frequency of overlaps
             sorted_sets = sorted(set_counts.items(), key=lambda x: len(x[1]), reverse=True)
-            
             for i, (p_key, times_set) in enumerate(sorted_sets):
-                label = labels[i % 26] if i < 26 else f"z{i}"
+                label = list(string.ascii_lowercase)[i % 26] if i < 26 else f"z{i}"
                 times_list = sorted(list(times_set), reverse=True)
                 count = len(times_list)
-                
-                # Show top 5 times
-                display_times = times_list[:5]
-                time_str = " | ".join(display_times)
-                if count > 5: time_str += " ..."
-                
-                summary_lines.append(f"{label}. Parties {p_key} were found around each other [{count}] times. The times are: {time_str}")
-            
-            spatial_summary = "\n".join(summary_lines) if summary_lines else "No concurrent spatial overlaps detected (using 30-min windowing)."
+                display_times = " | ".join(times_list[:5])
+                if count > 5: display_times += " ..."
+                summary_lines.append(f"{label}. Parties {p_key} were found around each other [{count}] times. The times are: {display_times}")
+            spatial_summary = "\n".join(summary_lines) if summary_lines else "No concurrent spatial overlaps detected."
         except Exception as e:
             spatial_summary = f"Summary calculation error: {str(e)}"
-
-        return {"status": "success", "data": json.dumps(final_df.sort_values('Time', ascending=False).head(1500).to_dict('records'), ensure_ascii=False), "summary": spatial_summary}
+        
+        # Add alias to results data for table display
+        data_list = final_df.sort_values('Time', ascending=False).head(1500).to_dict('records')
+        for item in data_list:
+            item['A_Party'] = format_with_alias(item['A_Party'], alias_map)
+            item['B_Party'] = format_with_alias(item['B_Party'], alias_map)
+            
+        return {"status": "success", "data": json.dumps(data_list, ensure_ascii=False), "summary": spatial_summary}
     except Exception as e: return {"status": "error", "message": f"Critical Error: {str(e)}"}

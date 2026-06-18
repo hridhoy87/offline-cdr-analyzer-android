@@ -12,6 +12,7 @@
         • <b>Local Edge Processing:</b> All analysis is done 100% offline on-device to ensure maximum data privacy.
     ]]></string>
     <string name="action_save_pdf">Save All As PDF</string>
+    <string name="action_edit_aliases">Edit Aliases</string>
     <string name="update_title">Check for update</string>
     <string name="update_message">When it will be published in google playstore this button will work</string>
     <string name="welcome_title">👋 সিডিআর অ্যানালাইজার ড্যাশবোর্ড</string>

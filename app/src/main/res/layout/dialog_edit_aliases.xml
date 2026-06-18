@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Add Number Alias"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="?attr/primaryTextColor"
+        android:layout_marginBottom="15dp"/>
+
+    <EditText
+        android:id="@+id/editNumber"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Phone Number (11 digits)"
+        android:inputType="phone"
+        android:textColor="?attr/primaryTextColor"
+        android:textColorHint="?attr/hintTextColorCustom"
+        android:background="@drawable/edit_text_bg"
+        android:padding="12dp"
+        android:layout_marginBottom="10dp"/>
+
+    <EditText
+        android:id="@+id/editAlias"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Alias (Name)"
+        android:inputType="textPersonName"
+        android:textColor="?attr/primaryTextColor"
+        android:textColorHint="?attr/hintTextColorCustom"
+        android:background="@drawable/edit_text_bg"
+        android:padding="12dp"
+        android:layout_marginBottom="20dp"/>
+
+    <Button
+        android:id="@+id/btnAddAlias"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="+"
+        android:textSize="24sp"
+        android:backgroundTint="#3182CE"
+        android:textColor="@android:color/white"/>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="240dp"
+        android:layout_marginTop="20dp"
+        android:background="@drawable/edit_text_bg"
+        android:padding="4dp">
+        <LinearLayout
+            android:id="@+id/containerAliasList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </ScrollView>
+
+</LinearLayout>

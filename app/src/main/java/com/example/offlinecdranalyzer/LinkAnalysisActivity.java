@@ -191,6 +191,8 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 JSONObject imeiData = mapping.getJSONObject(imei);
                 JSONArray sims = imeiData.getJSONArray("sims");
                 String hardware = imeiData.optString("hardware", "Generic Device");
+                String alias = imeiData.optString("alias", "");
+                String imeiLabel = imei + (alias.isEmpty() ? "" : "(📌 " + alias + ")");
                 
                 View itemView = getLayoutInflater().inflate(R.layout.item_histogram_bar, mappingLayout, false);
                 ((TextView) itemView.findViewById(R.id.areaName)).setText("Handset: " + hardware);
@@ -201,7 +203,8 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 
                 StringBuilder simList = new StringBuilder();
                 for (int i = 0; i < sims.length(); i++) {
-                    simList.append(sims.getString(i));
+                    String sim = sims.getString(i);
+                    simList.append(sim);
                     if (i < sims.length() - 1) simList.append(", ");
                 }
                 
@@ -209,7 +212,7 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 countView.setText(sims.length() + " SIMs");
 
                 TextView detailView = new TextView(this);
-                detailView.setText("IMEI: " + imei + "\nUsed by SIM(s): " + simList.toString());
+                detailView.setText("IMEI: " + imeiLabel + "\nUsed by SIM(s): " + simList.toString());
                 detailView.setTextSize(11);
                 detailView.setTextColor(Color.parseColor("#8b949e"));
                 detailView.setPadding(40, 0, 0, 30);
@@ -270,6 +273,7 @@ public class LinkAnalysisActivity extends AppCompatActivity {
         try {
             if (rawGraphData != null) {
                 JSONObject json = new JSONObject(rawGraphData);
+                JSONObject aliasMap = json.optJSONObject("alias_map");
                 
                 // 1. Summary of Common B-Parties
                 paint.setTextSize(14);
@@ -285,17 +289,22 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                     for (int i = 0; i < common.length(); i++) {
                         JSONObject link = common.getJSONObject(i);
                         String target = link.optString("target", "Unknown");
+                        String targetAlias = (aliasMap != null) ? aliasMap.optString(target, "") : "";
+                        String targetDisplay = target + (targetAlias.isEmpty() ? "" : "(📌 " + targetAlias + ")");
+                        
                         JSONArray sources = link.optJSONArray("source");
                         
                         paint.setFakeBoldText(true);
-                        canvas[0].drawText((i + 1) + ". " + target + " was found common between:", 60, y[0], paint);
+                        canvas[0].drawText((i + 1) + ". " + targetDisplay + " was found common between:", 60, y[0], paint);
                         y[0] += 15;
                         
                         paint.setFakeBoldText(false);
                         StringBuilder sb = new StringBuilder();
                         if (sources != null) {
                             for (int k = 0; k < sources.length(); k++) {
-                                sb.append(sources.optString(k));
+                                String source = sources.optString(k);
+                                String sourceAlias = (aliasMap != null) ? aliasMap.optString(source, "") : "";
+                                sb.append(source).append(sourceAlias.isEmpty() ? "" : "(📌 " + sourceAlias + ")");
                                 if (k < sources.length() - 1) sb.append(", ");
                             }
                         }
@@ -335,14 +344,19 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 paint.setTextSize(10);
 
                 JSONObject simImeiMap = json.optJSONObject("sim_to_imei_map");
+
                 if (simImeiMap != null && simImeiMap.length() > 0) {
                     java.util.Iterator<String> simKeys = simImeiMap.keys();
                     int serial = 1;
                     while (simKeys.hasNext()) {
                         String sim = simKeys.next();
+                        String simAlias = (aliasMap != null) ? aliasMap.optString(sim, "") : "";
+                        String simDisplay = sim + (simAlias.isEmpty() ? "" : "(📌 " + simAlias + ")");
+                        
                         JSONArray imeis = simImeiMap.getJSONArray(sim);
                         
                         for (int k = 0; k < imeis.length(); k++) {
+                            // ... (page break logic preserved)
                             if (y[0] > 780) {
                                 document.finishPage(page[0]);
                                 page[0] = document.startPage(pageInfo);
@@ -357,15 +371,17 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                             JSONObject imeiObj = imeis.getJSONObject(k);
                             String imei = imeiObj.optString("imei", "Unknown");
                             String hw = imeiObj.optString("hw", "Generic Handset");
+                            String imeiAlias = imeiObj.optString("alias", "");
+                            String imeiDisplay = imei + (imeiAlias.isEmpty() ? "" : "(📌 " + imeiAlias + ")");
 
                             if (k == 0) {
                                 paint.setFakeBoldText(true);
                                 canvas[0].drawText(String.valueOf(serial), 50, y[0], paint);
-                                canvas[0].drawText(sim, 100, y[0], paint);
+                                canvas[0].drawText(simDisplay, 100, y[0], paint);
                                 paint.setFakeBoldText(false);
                             }
                             
-                            canvas[0].drawText(imei, 230, y[0], paint);
+                            canvas[0].drawText(imeiDisplay, 230, y[0], paint);
                             String brandDisplay = hw.length() > 30 ? hw.substring(0, 27) + "..." : hw;
                             canvas[0].drawText(brandDisplay, 400, y[0], paint);
                             

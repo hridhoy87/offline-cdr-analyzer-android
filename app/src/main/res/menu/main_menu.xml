@@ -6,6 +6,10 @@
         android:title="@string/action_save_pdf"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_edit_aliases"
+        android:title="@string/action_edit_aliases"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_about"
         android:title="About Me"
         app:showAsAction="never" />
