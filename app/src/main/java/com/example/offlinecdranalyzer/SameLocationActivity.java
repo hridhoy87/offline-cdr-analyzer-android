@@ -1,5 +1,7 @@
 package com.example.offlinecdranalyzer;
 
+import android.app.DatePickerDialog;
+import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -33,8 +35,11 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class SameLocationActivity extends AppCompatActivity {
@@ -44,6 +49,11 @@ public class SameLocationActivity extends AppCompatActivity {
     private View loadingOverlay;
     private ImageView loadingLogo;
     private Animation complexAnim;
+    
+    private TextView txtStartDate, txtEndDate;
+    private Calendar filterStart = null;
+    private Calendar filterEnd = null;
+    private List<String> sourceFilePaths;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -69,17 +79,132 @@ public class SameLocationActivity extends AppCompatActivity {
         ImageButton btnBack = findViewById(R.id.btnBackLoc);
         ImageButton btnExportPdf = findViewById(R.id.btnExportPdfLoc);
         ImageButton btnExportExcel = findViewById(R.id.btnExportExcelLoc);
+        
+        txtStartDate = findViewById(R.id.txtStartDate);
+        txtEndDate = findViewById(R.id.txtEndDate);
+        ImageButton btnRefine = findViewById(R.id.btnRefineTimeline);
+
+        // Add Header Row Immediately
+        addTableHeader();
 
         String jsonPath = getIntent().getStringExtra("loc_json_path");
+        sourceFilePaths = getIntent().getStringArrayListExtra("file_paths");
         
         btnBack.setOnClickListener(v -> finish());
         btnExportPdf.setOnClickListener(v -> exportToPdf());
         btnExportExcel.setOnClickListener(v -> exportToExcel());
 
+        txtStartDate.setOnClickListener(v -> showDateTimePicker(true));
+        txtEndDate.setOnClickListener(v -> showDateTimePicker(false));
+        btnRefine.setOnClickListener(v -> refineAnalysis());
+
         if (jsonPath != null) {
             startAsyncPopulation(jsonPath);
         } else {
             Toast.makeText(this, "No data path received", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void showDateTimePicker(boolean isStart) {
+        Calendar current = Calendar.getInstance();
+        new DatePickerDialog(this, (view, year, month, dayOfMonth) -> {
+            Calendar cal = Calendar.getInstance();
+            cal.set(Calendar.YEAR, year);
+            cal.set(Calendar.MONTH, month);
+            cal.set(Calendar.DAY_OF_MONTH, dayOfMonth);
+
+            new TimePickerDialog(this, (v, hour, minute) -> {
+                cal.set(Calendar.HOUR_OF_DAY, hour);
+                cal.set(Calendar.MINUTE, minute);
+                cal.set(Calendar.SECOND, 0);
+
+                SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yy HH:mm", Locale.US);
+                if (isStart) {
+                    filterStart = cal;
+                    txtStartDate.setText(sdf.format(cal.getTime()));
+                } else {
+                    filterEnd = cal;
+                    txtEndDate.setText(sdf.format(cal.getTime()));
+                }
+            }, 0, 0, true).show();
+        }, current.get(Calendar.YEAR), current.get(Calendar.MONTH), current.get(Calendar.DAY_OF_MONTH)).show();
+    }
+
+    private void refineAnalysis() {
+        if (sourceFilePaths == null || sourceFilePaths.isEmpty()) {
+            Toast.makeText(this, "Source files missing", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        loadingOverlay.setVisibility(View.VISIBLE);
+        loadingLogo.startAnimation(complexAnim);
+        locTable.removeAllViews();
+        addTableHeader();
+
+        new Thread(() -> {
+            try {
+                Python py = Python.getInstance();
+                PyObject pyModule = py.getModule("index");
+                
+                String startTs = null, endTs = null;
+                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+                if (filterStart != null) startTs = sdf.format(filterStart.getTime());
+                if (filterEnd != null) endTs = sdf.format(filterEnd.getTime());
+
+                // Note: We need a slight modification to our same_location_analysis in python 
+                // to support start/end TS. For now we will filter the existing rawJson or 
+                // re-run engine if required.
+                
+                // Let's filter the existing rawJson in memory for instant refinement 
+                // unless we want a full re-process. Filtering is faster.
+                JSONArray original = new JSONArray(rawJson);
+                JSONArray filtered = new JSONArray();
+                
+                SimpleDateFormat parseSdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+                
+                for (int i = 0; i < original.length(); i++) {
+                    JSONObject obj = original.getJSONObject(i);
+                    String timeStr = obj.optString("Time");
+                    try {
+                        long ts = parseSdf.parse(timeStr).getTime();
+                        boolean match = true;
+                        if (filterStart != null && ts < filterStart.getTimeInMillis()) match = false;
+                        if (filterEnd != null && ts > filterEnd.getTimeInMillis()) match = false;
+                        if (match) filtered.put(obj);
+                    } catch (Exception e) { filtered.put(obj); }
+                }
+
+                String filteredJson = filtered.toString();
+                runOnUiThread(() -> {
+                    rawJson = filteredJson;
+                    populateTableFromArray(filtered);
+                });
+
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    loadingOverlay.setVisibility(View.GONE);
+                    Toast.makeText(this, "Refinement error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                });
+            }
+        }).start();
+    }
+
+    private void populateTableFromArray(JSONArray array) {
+        try {
+            int total = array.length();
+            if (total == 0) {
+                loadingOverlay.setVisibility(View.GONE);
+                Toast.makeText(this, "No overlaps in this range", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            for (int i = 0; i < total; i++) {
+                locTable.addView(createRowFromData(array.getJSONObject(i), i));
+            }
+            loadingOverlay.setVisibility(View.GONE);
+            loadingLogo.clearAnimation();
+        } catch (Exception e) {
+            loadingOverlay.setVisibility(View.GONE);
         }
     }
 
@@ -109,7 +234,7 @@ public class SameLocationActivity extends AppCompatActivity {
                     
                     for (int j = currentStart; j < currentEnd; j++) {
                         JSONObject obj = array.getJSONObject(j);
-                        batchRows.add(createRowFromData(obj));
+                        batchRows.add(createRowFromData(obj, j));
                     }
                     
                     runOnUiThread(() -> {
@@ -154,9 +279,45 @@ public class SameLocationActivity extends AppCompatActivity {
         }
     }
 
-    private TableRow createRowFromData(JSONObject obj) {
+    private void addTableHeader() {
+        // Clear everything first to ensure only one header exists
+        locTable.removeAllViews();
+        
+        TableRow header = new TableRow(this);
+        header.setBackgroundColor(Color.parseColor("#2C3E50"));
+        header.setPadding(0, 12, 0, 12);
+
+        header.addView(createHeaderCell("Time"));
+        header.addView(createHeaderCell("A Party"));
+        header.addView(createHeaderCell("B Party"));
+        header.addView(createHeaderCell("LAC"));
+        header.addView(createHeaderCell("Cell"));
+        header.addView(createHeaderCell("BTS Loc"));
+        header.addView(createHeaderCell("Reason"));
+
+        locTable.addView(header);
+    }
+
+    private TextView createHeaderCell(String text) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setPadding(12, 12, 12, 12);
+        tv.setGravity(android.view.Gravity.CENTER);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(13);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        return tv;
+    }
+
+    private TableRow createRowFromData(JSONObject obj, int rowIndex) {
         TableRow row = new TableRow(this);
-        row.setPadding(4, 4, 4, 4);
+        row.setPadding(0, 4, 0, 4);
+        
+        // Transparent grey stripe: safe for both Light and Dark themes
+        if (rowIndex % 2 == 1) {
+            row.setBackgroundColor(Color.argb(20, 128, 128, 128));
+        }
+
         row.addView(createCell(obj.optString("Time", "N/A")));
         row.addView(createCell(obj.optString("A_Party", "N/A")));
         row.addView(createCell(obj.optString("B_Party", "N/A")));
@@ -170,10 +331,16 @@ public class SameLocationActivity extends AppCompatActivity {
     private TextView createCell(String text) {
         TextView tv = new TextView(this);
         tv.setText(text);
-        tv.setPadding(8, 8, 8, 8);
+        tv.setPadding(12, 8, 12, 8);
+        tv.setTextSize(11);
+        
+        // Ensure text is always visible regardless of theme
         android.util.TypedValue typedValue = new android.util.TypedValue();
-        getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true);
-        tv.setTextColor(typedValue.data);
+        if (getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true)) {
+            tv.setTextColor(typedValue.data);
+        } else {
+            tv.setTextColor(Color.BLACK); // Fallback
+        }
         return tv;
     }
 
@@ -190,29 +357,40 @@ public class SameLocationActivity extends AppCompatActivity {
         paint.setTextSize(10f);
         paint.setFakeBoldText(false);
         float y = 100;
+        float btsX = 460;
+        float btsWidth = 350;
         
         try {
             JSONArray array = new JSONArray(rawJson);
             for (int i = 0; i < array.length(); i++) {
                 JSONObject obj = array.getJSONObject(i);
-                canvas.drawText(obj.optString("Time", "N/A"), 40, y, paint);
-                canvas.drawText(obj.optString("A_Party", "N/A"), 140, y, paint);
-                canvas.drawText(obj.optString("B_Party", "N/A"), 240, y, paint);
-                canvas.drawText(obj.optString("LAC", "N/A"), 340, y, paint);
-                canvas.drawText(obj.optString("Cell", "N/A"), 400, y, paint);
-                String bts = obj.optString("BTS_Loc", "N/A");
-                if (bts.length() > 40) bts = bts.substring(0, 37) + "...";
-                canvas.drawText(bts, 460, y, paint);
-                canvas.drawText(obj.optString("Reason", "N/A"), 700, y, paint);
                 
-                y += 15;
-                if (y > 550) {
+                String bts = obj.optString("BTS_Loc", "N/A");
+                List<String> btsLines = wrapText(bts, btsWidth, paint);
+                
+                float rowHeight = Math.max(15, btsLines.size() * 12);
+                
+                if (y + rowHeight > 550) {
                     pdfDocument.finishPage(page);
                     page = pdfDocument.startPage(pageInfo);
                     canvas = page.getCanvas();
                     drawHeader(canvas, paint);
                     y = 100;
                 }
+
+                canvas.drawText(obj.optString("Time", "N/A"), 40, y, paint);
+                canvas.drawText(obj.optString("A_Party", "N/A"), 140, y, paint);
+                canvas.drawText(obj.optString("B_Party", "N/A"), 240, y, paint);
+                canvas.drawText(obj.optString("LAC", "N/A"), 340, y, paint);
+                canvas.drawText(obj.optString("Cell", "N/A"), 400, y, paint);
+                
+                float lineY = y;
+                for (String line : btsLines) {
+                    canvas.drawText(line, btsX, lineY, paint);
+                    lineY += 12;
+                }
+                
+                y += rowHeight + 8;
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -307,9 +485,42 @@ public class SameLocationActivity extends AppCompatActivity {
         canvas.drawText("B Party", 240, y, paint);
         canvas.drawText("LAC", 340, y, paint);
         canvas.drawText("Cell", 400, y, paint);
-        canvas.drawText("BTS Loc", 460, y, paint);
-        canvas.drawText("Reason", 700, y, paint);
+        canvas.drawText("BTS Location (Full Address)", 460, y, paint);
         paint.setFakeBoldText(false);
+    }
+
+    private List<String> wrapText(String text, float width, Paint paint) {
+        List<String> result = new ArrayList<>();
+        if (text == null || text.isEmpty()) {
+            result.add("");
+            return result;
+        }
+        
+        String[] words = text.split(" ");
+        StringBuilder line = new StringBuilder();
+        for (String word : words) {
+            if (paint.measureText(line + word) <= width) {
+                line.append(word).append(" ");
+            } else {
+                if (line.length() > 0) {
+                    result.add(line.toString().trim());
+                    line = new StringBuilder();
+                }
+                
+                if (paint.measureText(word) > width) {
+                    int start = 0;
+                    while (start < word.length()) {
+                        int count = paint.breakText(word, start, word.length(), true, width, null);
+                        result.add(word.substring(start, start + count));
+                        start += count;
+                    }
+                } else {
+                    line.append(word).append(" ");
+                }
+            }
+        }
+        if (line.length() > 0) result.add(line.toString().trim());
+        return result;
     }
 
     private void openPdf(File file) {

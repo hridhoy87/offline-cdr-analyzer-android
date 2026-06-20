@@ -84,7 +84,6 @@ public class CropActivity extends AppCompatActivity {
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                    selectedFiles.clear();
                     if (result.getData().getClipData() != null) {
                         int count = result.getData().getClipData().getItemCount();
                         for (int i = 0; i < count; i++) {
@@ -95,16 +94,30 @@ public class CropActivity extends AppCompatActivity {
                         String path = copyToCache(result.getData().getData());
                         if (path != null) selectedFiles.add(path);
                     }
-                    cropStatusText.setText("Selected " + selectedFiles.size() + " files.");
+                    cropStatusText.setText("Staged " + selectedFiles.size() + " files for cropping.");
                 }
             }
         );
 
-        findViewById(R.id.btnSelectFilesCrop).setOnClickListener(v -> {
+        findViewById(R.id.btnSelectExcelCrop).setOnClickListener(v -> {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             picker.launch(intent);
+        });
+
+        findViewById(R.id.btnSelectPdfCrop).setOnClickListener(v -> {
+            new AlertDialog.Builder(this)
+                    .setTitle("PDF Processing Note")
+                    .setMessage(R.string.pdf_speed_warning)
+                    .setPositiveButton("Continue", (dialog, which) -> {
+                        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                        intent.setType("application/pdf");
+                        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                        picker.launch(intent);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
         });
 
         findViewById(R.id.btnProcessCrop).setOnClickListener(v -> runCropEngine());
@@ -212,7 +225,13 @@ public class CropActivity extends AppCompatActivity {
 
     private String copyToCache(Uri uri) {
         try {
-            File tempFile = new File(getCacheDir(), "temp_cdr_crop_" + System.currentTimeMillis() + ".xlsx");
+            String extension = ".xlsx";
+            String type = getContentResolver().getType(uri);
+            if (type != null && type.equals("application/pdf")) {
+                extension = ".pdf";
+            }
+            
+            File tempFile = new File(getCacheDir(), "temp_cdr_crop_" + System.currentTimeMillis() + extension);
             InputStream is = getContentResolver().openInputStream(uri);
             FileOutputStream fos = new FileOutputStream(tempFile);
             byte[] buffer = new byte[8192]; int len;

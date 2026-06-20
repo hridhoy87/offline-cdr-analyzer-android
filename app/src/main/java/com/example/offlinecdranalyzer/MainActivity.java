@@ -58,6 +58,7 @@ import android.widget.ProgressBar;
 import android.widget.TableLayout;
 import android.widget.TableRow;
 import android.widget.TextView;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.Iterator;
 import android.widget.ScrollView;
@@ -109,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastGraphData = null;
     private String lastSameLocationJson = null;
     private String lastSpatialSummary = null;
-    private List<Map<PyObject, PyObject>> lastPreviewRows = null;
+    private String lastPreviewJson = null;
     private String lastSummaryHtml = null;
     
     private Calendar filterStartCal = null;
@@ -119,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
     private Thread backgroundAnalysisThread = null;
     private boolean isAnalysisReady = false;
     private boolean isAnalysisRunning = false;
+    private boolean isWaitingForAnalysis = false;
     private int currentAnalysisProgress = 0;
 
     private static final long INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes
@@ -201,7 +203,8 @@ public class MainActivity extends AppCompatActivity {
         locProgressText = findViewById(R.id.locProgressText);
         locLoadingIcon = findViewById(R.id.locLoadingIcon);
 
-        Button btnSelectFiles = findViewById(R.id.btnSelectFiles);
+        Button btnSelectExcel = findViewById(R.id.btnSelectExcel);
+        Button btnSelectPdf = findViewById(R.id.btnSelectPdf);
         Button btnProcess = findViewById(R.id.btnProcess);
         Button btnRefresh = findViewById(R.id.btnRefresh);
         btnOpenReport = findViewById(R.id.btnOpenReport);
@@ -298,7 +301,6 @@ public class MainActivity extends AppCompatActivity {
                 new ActivityResultContracts.StartActivityForResult(),
                 result -> {
                     if (result.getResultCode() == Activity.RESULT_OK && result.getData() != null) {
-                        selectedFilePaths.clear();
                         resultsContainer.setVisibility(View.GONE);
                         if (result.getData().getClipData() != null) {
                             int count = result.getData().getClipData().getItemCount();
@@ -316,12 +318,27 @@ public class MainActivity extends AppCompatActivity {
                 }
         );
 
-        btnSelectFiles.setOnClickListener(v -> {
+        btnSelectExcel.setOnClickListener(v -> {
             hideKeyboard(v);
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
             filePickerLauncher.launch(intent);
+        });
+
+        btnSelectPdf.setOnClickListener(v -> {
+            hideKeyboard(v);
+            new AlertDialog.Builder(this)
+                    .setTitle("PDF Processing Note")
+                    .setMessage(R.string.pdf_speed_warning)
+                    .setPositiveButton("Continue", (dialog, which) -> {
+                        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+                        intent.setType("application/pdf");
+                        intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                        filePickerLauncher.launch(intent);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
         });
 
         btnProcess.setOnClickListener(v -> {
@@ -814,9 +831,8 @@ public class MainActivity extends AppCompatActivity {
             Python py = Python.getInstance();
             lastGeneratedReportPath = result.get(py.getBuiltins().get("str").call("output_path")).toString();
             Map<PyObject, PyObject> metrics = result.get(py.getBuiltins().get("str").call("metrics")).asMap();
-            lastPreviewRows = new ArrayList<>();
-            List<PyObject> rows = metrics.get(py.getBuiltins().get("str").call("preview_rows")).asList();
-            for (PyObject row : rows) lastPreviewRows.add(row.asMap());
+            
+            lastPreviewJson = metrics.get(py.getBuiltins().get("str").call("preview_rows_json")).toString();
 
             List<PyObject> topBList = metrics.get(py.getBuiltins().get("str").call("top_b_parties")).asList();
             StringBuilder topBHtml = new StringBuilder(), topBPlain = new StringBuilder();
@@ -961,7 +977,15 @@ public class MainActivity extends AppCompatActivity {
                 isAnalysisRunning = false;
                 runOnUiThread(() -> {
                     locLoadingIcon.clearAnimation();
-                    locProgressContainer.setVisibility(View.GONE);
+                    if (isAnalysisReady) {
+                        locProgressBar.setProgress(100);
+                        locProgressText.setText("100%");
+                        Toast.makeText(MainActivity.this, "📍 Movement Analysis Ready!", Toast.LENGTH_SHORT).show();
+                        // Change button look to indicate readiness if you like
+                        btnSameLocation.setText("📍 View Movement Analysis (Ready)");
+                    } else {
+                        locProgressContainer.setVisibility(View.GONE);
+                    }
                 });
             }
         });
@@ -975,44 +999,45 @@ public class MainActivity extends AppCompatActivity {
 
     private void runSameLocationAnalysis() {
         if (isAnalysisReady && lastSameLocationJson != null) {
-            // Instant Launch
+            // Standard launch
+            btnSameLocation.setEnabled(false);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> btnSameLocation.setEnabled(true), 1000);
+
             Intent intent = new Intent(this, SameLocationActivity.class);
             intent.putExtra("loc_json_path", lastSameLocationJson);
+            intent.putStringArrayListExtra("file_paths", new ArrayList<>(selectedFilePaths));
             startActivity(intent);
             return;
         }
 
         if (isAnalysisRunning) {
-            // Show progress indicator instead of full-screen overlay
+            // If already waiting, don't start another wait thread
+            if (locProgressContainer.getVisibility() == View.VISIBLE) {
+                Toast.makeText(this, "Still calculating movement overlaps...", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // Show the progress container but DON'T auto-launch activity when done.
+            // This prevents "UI Hijacking" if the user is doing something else.
             locProgressContainer.setVisibility(View.VISIBLE);
             locProgressBar.setProgress(currentAnalysisProgress);
             locProgressText.setText(currentAnalysisProgress + "%");
             
-            // Start the infinite animation loop
             Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
             locLoadingIcon.startAnimation(pulse);
             
-            Toast.makeText(this, "Movement analysis is in progress. Please wait...", Toast.LENGTH_SHORT).show();
-            
-            // Periodically check for completion to launch activity
-            new Thread(() -> {
-                while (isAnalysisRunning) {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored) { break; }
-                }
-                if (isAnalysisReady) {
-                    runOnUiThread(() -> runSameLocationAnalysis());
-                }
-            }).start();
+            Toast.makeText(this, "Movement analysis is running in background. Button will activate when ready.", Toast.LENGTH_LONG).show();
             return;
         }
 
-        if (selectedFilePaths.isEmpty()) {
-            Toast.makeText(this, "No files staged.", Toast.LENGTH_SHORT).show();
+        if (selectedFilePaths.size() < 2) {
+            Toast.makeText(this, "Requires at least 2 CDRs for movement correlation.", Toast.LENGTH_SHORT).show();
             return;
         }
         
+        // If not running and not ready, start it
         startSilentSameLocationAnalysis();
-        runSameLocationAnalysis();
+        locProgressContainer.setVisibility(View.VISIBLE);
     }
 
     private void performCdrSearch(String query) {
@@ -1129,31 +1154,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showPeekDialog() {
-        if (lastPreviewRows == null || lastPreviewRows.isEmpty()) {
+        if (lastPreviewJson == null || lastPreviewJson.length() < 5) {
             Toast.makeText(this, R.string.no_data_to_preview, Toast.LENGTH_SHORT).show();
             return;
         }
+
         View dialogView = getLayoutInflater().inflate(R.layout.dialog_peek, null);
         TableLayout tableLayout = dialogView.findViewById(R.id.peekTable);
+        View peekScroll = dialogView.findViewById(R.id.peekScroll);
+        View peekLoading = dialogView.findViewById(R.id.peekLoadingContainer);
         Button btnClose = dialogView.findViewById(R.id.btnClosePeek);
         ImageButton btnCopy = dialogView.findViewById(R.id.btnCopyPeek);
-        Python py = Python.getInstance();
-        PyObject strDt = py.getBuiltins().get("str").call("dt"), 
-                 strAp = py.getBuiltins().get("str").call("ap"),
-                 strBp = py.getBuiltins().get("str").call("bp"), 
-                 strFreq = py.getBuiltins().get("str").call("freq");
 
         btnCopy.setOnClickListener(v -> {
-            StringBuilder sb = new StringBuilder("Dt | Ap | Bp | Freq\n---------------------\n");
-            for (Map<PyObject, PyObject> row : lastPreviewRows) 
-                sb.append(row.get(strDt)).append(" | ")
-                  .append(row.get(strAp)).append(" | ")
-                  .append(row.get(strBp)).append(" | ")
-                  .append(row.get(strFreq)).append("\n");
-            shareText(getString(R.string.peek_share_title), sb.toString());
+            try {
+                JSONArray array = new JSONArray(lastPreviewJson);
+                StringBuilder sb = new StringBuilder("Dt | Ap | Bp | Freq\n---------------------\n");
+                for (int i = 0; i < array.length(); i++) {
+                    JSONObject row = array.getJSONObject(i);
+                    sb.append(row.optString("dt")).append(" | ")
+                      .append(row.optString("ap")).append(" | ")
+                      .append(row.optString("bp")).append(" | ")
+                      .append(row.optString("freq")).append("\n");
+                }
+                shareText(getString(R.string.peek_share_title), sb.toString());
+            } catch (Exception e) {
+                Toast.makeText(this, "Copy failed", Toast.LENGTH_SHORT).show();
+            }
         });
 
-        // Add Header Row (Matching Same Location Style exactly)
+        // Add Header Row
         TableRow header = new TableRow(this);
         header.setBackgroundColor(Color.parseColor("#2C3E50"));
         header.addView(createHeaderCell("Time"));
@@ -1162,22 +1192,59 @@ public class MainActivity extends AppCompatActivity {
         header.addView(createHeaderCell("Freq"));
         tableLayout.addView(header);
 
-        int count = 0;
-        for (Map<PyObject, PyObject> row : lastPreviewRows) {
-            TableRow tableRow = new TableRow(this);
-            // Alternate colors for readability
-            tableRow.setBackgroundColor(count % 2 == 0 ? Color.WHITE : Color.parseColor("#F5F5F5"));
-            
-            tableRow.addView(createTableCell(row.get(strDt).toString()));
-            tableRow.addView(createTableCell(row.get(strAp).toString()));
-            tableRow.addView(createTableCell(row.get(strBp).toString()));
-            tableRow.addView(createTableCell(row.get(strFreq).toString()));
-            tableLayout.addView(tableRow);
-            count++;
-        }
         AlertDialog dialog = new AlertDialog.Builder(this).setView(dialogView).create();
         btnClose.setOnClickListener(v1 -> dialog.dismiss());
         dialog.show();
+
+        final Handler handler = new Handler(Looper.getMainLooper());
+
+        new Thread(() -> {
+            try {
+                // Forced 2.5 second loading state as requested
+                Thread.sleep(2500);
+
+                JSONArray array = new JSONArray(lastPreviewJson);
+                final int totalRows = array.length();
+                final int chunkSize = 50;
+
+                for (int i = 0; i < totalRows; i += chunkSize) {
+                    if (!dialog.isShowing()) break;
+
+                    final int start = i;
+                    final int end = Math.min(i + chunkSize, totalRows);
+                    final List<TableRow> batch = new ArrayList<>();
+
+                    for (int j = start; j < end; j++) {
+                        JSONObject rowData = array.getJSONObject(j);
+                        TableRow tableRow = new TableRow(MainActivity.this);
+                        tableRow.setBackgroundColor(j % 2 == 0 ? Color.WHITE : Color.parseColor("#F5F5F5"));
+                        tableRow.addView(createTableCell(rowData.optString("dt")));
+                        tableRow.addView(createTableCell(rowData.optString("ap")));
+                        tableRow.addView(createTableCell(rowData.optString("bp")));
+                        tableRow.addView(createTableCell(rowData.optString("freq")));
+                        batch.add(tableRow);
+                    }
+
+                    handler.post(() -> {
+                        if (start == 0) {
+                            peekLoading.setVisibility(View.GONE);
+                            peekScroll.setVisibility(View.VISIBLE);
+                        }
+                        for (TableRow row : batch) tableLayout.addView(row);
+                    });
+
+                    // Yield slightly to keep system smooth
+                    Thread.sleep(25);
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (dialog.isShowing()) {
+                        peekLoading.setVisibility(View.GONE);
+                        Toast.makeText(this, "Peek error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        }).start();
     }
 
     private TextView createHeaderCell(String text) {
@@ -1217,9 +1284,10 @@ public class MainActivity extends AppCompatActivity {
         isAnalysisRunning = false;
         currentAnalysisProgress = 0;
         if (locProgressContainer != null) locProgressContainer.setVisibility(View.GONE);
+        if (btnSameLocation != null) btnSameLocation.setText("📍 Do a same location analysis");
 
         locationInput.setText(""); searchCdrInput.setText(""); selectedFilePaths.clear();
-        lastGeneratedReportPath = null; lastPreviewRows = null; lastGraphData = null;
+        lastGeneratedReportPath = null; lastPreviewJson = null; lastGraphData = null;
         lastSummaryHtml = null; lastSpatialSummary = null;
         resultsContainer.setVisibility(View.GONE); loadingContainer.setVisibility(View.GONE);
         btnLinkAnalysis.setVisibility(View.GONE); btnSameLocation.setVisibility(View.GONE);
@@ -1336,7 +1404,13 @@ public class MainActivity extends AppCompatActivity {
 
     private String copyUriToCache(Uri uri) {
         try {
-            File tempFile = new File(getCacheDir(), "temp_cdr_" + System.currentTimeMillis() + ".xlsx");
+            String extension = ".xlsx";
+            String type = getContentResolver().getType(uri);
+            if (type != null && type.equals("application/pdf")) {
+                extension = ".pdf";
+            }
+            
+            File tempFile = new File(getCacheDir(), "temp_cdr_" + System.currentTimeMillis() + extension);
             InputStream inputStream = getContentResolver().openInputStream(uri);
             if (inputStream == null) return null;
             FileOutputStream outputStream = new FileOutputStream(tempFile);

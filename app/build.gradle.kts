@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.offlinecdranalyzer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "6.0"
+        versionCode = 7
+        versionName = "7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -35,6 +35,7 @@ android {
                 install("numpy")
                 install("pandas")
                 install("openpyxl")
+                install("pdfplumber")
             }
         }
     }

@@ -1,8 +1,0 @@
-feat: implement forensic PDF reporting, target alias management, and chronological data integrity
-
-- Integrated automated forensic PDF report generation with "SECRET" headers/footers.
-- Developed a Target Alias Management system with CRUD capabilities and persistent JSON storage.
-- Applied global (📌 alias) labeling across all UI views, Excel exports, and 3D visualizations.
-- Implemented "Non-Destructive" data cleaning to preserve chronological logs for malformed numbers.
-- Enhanced Spatial Proximity algorithm with 30-minute windowing and automated intelligence summaries.
-- Optimized the Chaquopy bridge using JSON serialization to ensure stable data transfer.

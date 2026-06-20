@@ -8,6 +8,7 @@ import pandas as pd
 from openpyxl.styles import PatternFill, Font, Alignment
 import time
 from difflib import SequenceMatcher
+import pdf_converter  # Import the new PDF converter
 
 # Load TAC Database for hardware insights
 TAC_DB = None
@@ -18,7 +19,9 @@ def lookup_imei(imei):
         if TAC_DB is None:
             db_path = os.path.join(os.path.dirname(__file__), "tac_db.csv")
             if os.path.exists(db_path):
-                TAC_DB = pd.read_csv(db_path, dtype=str)
+                # Using standard open
+                with open(db_path, 'r', encoding='utf-8') as f:
+                    TAC_DB = pd.read_csv(f, dtype=str)
                 TAC_DB['TAC'] = TAC_DB['TAC'].str.strip()
             else: return None
         
@@ -32,20 +35,16 @@ def lookup_imei(imei):
 
 def load_aliases():
     try:
-        # Search for metadata in common Android Documents paths
         possible_paths = [
             "/storage/emulated/0/Documents/CDR_Reports/aliases_metadata.json",
-            os.path.join(os.environ.get("HOME", ""), "Documents/CDR_Reports/aliases_metadata.json"),
+            os.path.join(os.environ.get("HOME", "/storage/emulated/0"), "Documents/CDR_Reports/aliases_metadata.json"),
             os.path.join(os.path.dirname(__file__), "aliases_metadata.json")
         ]
         for p in possible_paths:
             if os.path.exists(p):
-                # Using builtins.open explicitly to avoid resolution issues in some environments
-                import builtins
-                with builtins.open(p, 'r', encoding='utf-8') as f:
+                with open(p, 'r', encoding='utf-8') as f:
                     return json.load(f)
-    except Exception:
-        pass
+    except: pass
     return {}
 
 def format_with_alias(val, alias_map):
@@ -61,20 +60,43 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         all_dataframes, number_source_map = [], {}
         is_single_file = (len(list(file_paths)) == 1)
 
-        def clean_phone_number(val, is_b_party=False):
+        def clean_phone_number(val):
             val_str = str(val).strip().split('.')[0]
             if val_str.startswith('+88'): val_str = val_str[3:]
             elif val_str.startswith('88'): val_str = val_str[2:]
             digits_only = "".join(c for c in val_str if c.isdigit())
-            if len(digits_only) == 11:
-                return digits_only
-            if val_str in ['nan', 'None', '', 'nan.0']:
-                return "[?] Unknown"
+            if len(digits_only) == 11: return digits_only
+            if val_str in ['nan', 'None', '', 'nan.0']: return "[?] Unknown"
             return f"[?] {val_str}"
 
         for path in file_paths:
             if not os.path.exists(path): continue
             filename = os.path.basename(path)
+            
+            # Handle PDF Files
+            if path.lower().endswith('.pdf'):
+                try:
+                    df = pdf_converter.pdf_to_dataframe(path)
+                    if not df.empty:
+                        # Extract B-Parties for the number_source_map (same as excel logic)
+                        # In the standard 13-column format, Col D is index 3
+                        col_D_name = df.columns[3]
+                        def get_only_valid(v):
+                            c = "".join(i for i in str(v).split('.')[0] if i.isdigit())
+                            if c.startswith('88'): c = c[2:]
+                            if c.startswith('880'): c = c[3:]
+                            return c if len(c) == 11 else None
+                        
+                        df_clean_temp = df[col_D_name].apply(get_only_valid)
+                        for num in df_clean_temp.dropna().unique():
+                            if num not in number_source_map: number_source_map[num] = set()
+                            number_source_map[num].add(filename)
+                        all_dataframes.append(df)
+                except Exception as e:
+                    print(f"Error processing PDF {filename}: {e}")
+                continue
+
+            # Handle Excel Files
             try:
                 excel_file = pd.ExcelFile(path, engine="openpyxl")
                 df = excel_file.parse(sheet_name=excel_file.sheet_names[0], dtype=str)
@@ -108,15 +130,12 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         combined_df[col_D] = combined_df[col_D].apply(clean_phone_number)
         for col in [col_F, col_H, col_I, col_L, col_J]: combined_df[col] = combined_df[col].fillna('').astype(str).str.strip().replace('nan', '')
         for col in [col_H, col_I, col_J]: combined_df[col] = combined_df[col].apply(lambda x: str(x).split('.')[0])
-        if combined_df.empty: return {"status": "error", "message": "0 valid rows remaining."}
-
+        
         analysis_df = combined_df[ (~combined_df[col_C].str.startswith('[?]', na=False)) & (~combined_df[col_D].str.startswith('[?]', na=False)) ]
         b_to_as = analysis_df.groupby(col_D)[col_C].nunique()
         extracted_common = b_to_as[b_to_as > 1].index.tolist()
 
-        def safe_datetime_parser(series): return pd.to_datetime(series, errors='coerce')
-        combined_df['_parsed_dt'] = safe_datetime_parser(combined_df[col_A])
-        
+        combined_df['_parsed_dt'] = pd.to_datetime(combined_df[col_A], errors='coerce')
         unique_a_parties = [num for num in combined_df[col_C].unique() if num and str(num) != 'nan']
         summary_a_parties_str = ", ".join([format_with_alias(n, alias_map) for n in unique_a_parties])
 
@@ -130,7 +149,7 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         summary_multi_sim_str = f"Multi-SIM Burners: {', '.join(true_multi)}" if true_multi else "Device Identity: No multi-SIM handset anomalies."
 
         imei_to_aps = raw_imei_clean.groupby(col_J)[col_C].unique().apply(list).to_dict()
-        detailed_imei_map = {str(imei): [str(a) for a in aps] for imei, aps in imei_to_aps.items() if len(aps) > 1}
+        detailed_imei_map = {str(imei): {"sims": [str(a) for a in aps], "hardware": lookup_imei(imei) or "Unknown Device", "alias": alias_map.get(str(imei), "")} for imei, aps in imei_to_aps.items() if len(aps) > 1}
 
         ap_to_imeis = raw_imei_clean.groupby(col_C)[col_J].unique().apply(list).to_dict()
         sim_to_imei_data = {"links": [], "nodes": []}
@@ -184,18 +203,15 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         filtered_df["Frequency"] = filtered_df[col_D].map(freq_map).fillna(0).astype(int)
         filtered_df["Duration_Mins"] = filtered_df[col_D].map(dur_map).fillna(0).round(2)
 
-        if is_single_file:
-            summary_common_b_str = "N/A (Single File)"
-        else:
-            summary_common_b_str = ", ".join([format_with_alias(n, alias_map) for n in extracted_common]) if extracted_common else "None"
-            filtered_df["Common?"] = filtered_df[col_D].apply(lambda x: "Yes" if x in extracted_common else "No")
+        summary_common_b_str = ", ".join([format_with_alias(n, alias_map) for n in extracted_common]) if not is_single_file and extracted_common else "None"
+        if is_single_file: summary_common_b_str = "N/A (Single File)"
 
         filtered_df["Has_Multiple_IMEI"] = filtered_df[col_C].apply(lambda x: "Yes" if target_imei_counts.get(x, 0) >= 3 else "No")
         
         display_df = filtered_df.drop_duplicates(subset=[col_D], keep="first").copy()
-        display_df[col_A] = safe_datetime_parser(display_df[col_A])
-        display_df = display_df.sort_values(by=[col_A], ascending=False)
-        display_df[col_A] = display_df[col_A].apply(lambda x: x.strftime("%Y-%m-%d %H:%M:%S") if pd.notnull(x) else "")
+        display_df['_dt'] = pd.to_datetime(display_df[col_A], errors='coerce')
+        display_df = display_df.sort_values(by=['_dt'], ascending=False)
+        display_df[col_A] = display_df['_dt'].dt.strftime("%Y-%m-%d %H:%M:%S").fillna("")
 
         top_b_data = []
         for _, row in display_df[~display_df[col_D].str.startswith('[?]', na=False)].head(10).iterrows():
@@ -203,7 +219,23 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
 
         area_clusters = [{"area": str(k), "count": int(v)} for k, v in combined_df[col_L].value_counts().head(12).items() if str(k).strip() != '' and str(k).lower() != 'nan']
         
-        preview_data = [{"dt": str(row[col_A]), "ap": format_with_alias(row[col_C], alias_map), "bp": format_with_alias(row[col_D], alias_map), "freq": str(row["Frequency"]), "loc": str(row[col_L])} for _, row in display_df.head(100).iterrows()]
+        # Optimize: Convert preview data to a JSON string directly for faster Chaquopy transfer
+        preview_list = []
+        # Sort by Frequency to show "Top" B-parties
+        preview_df = display_df.sort_values(by="Frequency", ascending=False).head(100)
+        
+        for _, row in preview_df.iterrows():
+            bp_val = str(row[col_D]).strip()
+            # Filter: Only mobile numbers (starts with 0, length 11)
+            if len(bp_val) == 11 and bp_val.startswith('0'):
+                preview_list.append({
+                    "dt": str(row[col_A]),
+                    "ap": format_with_alias(row[col_C], alias_map),
+                    "bp": format_with_alias(row[col_D], alias_map),
+                    "freq": str(row["Frequency"]),
+                    "loc": str(row[col_L])
+                })
+        preview_data_json = json.dumps(preview_list, ensure_ascii=False)
 
         hourly_activity = {}
         for a_p in unique_a_parties:
@@ -236,69 +268,33 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         for a_p in unique_a_parties:
             a_df = combined_df[combined_df[col_C] == a_p]
             valid_dt = a_df['_parsed_dt'].dropna()
-            node_profiles[str(a_p)] = {
-                "total": len(a_df),
-                "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                "top_loc": str(a_areas.get(a_p, "Unknown")),
-                "alias": alias_map.get(str(a_p), "")
-            }
+            node_profiles[str(a_p)] = {"total": len(a_df), "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown", "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown", "top_loc": str(a_areas.get(a_p, "Unknown")), "alias": alias_map.get(str(a_p), "")}
         
-        all_bps = combined_df[col_D].unique()
-        for b_p in all_bps:
+        for b_p in combined_df[col_D].unique():
             sbp = str(b_p)
             if sbp not in node_profiles and sbp != 'nan':
                 b_df = combined_df[combined_df[col_D] == b_p]
                 valid_dt = b_df['_parsed_dt'].dropna()
-                node_profiles[sbp] = {
-                    "total": len(b_df),
-                    "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                    "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown",
-                    "top_loc": str(b_areas.get(b_p, "Unknown")),
-                    "alias": alias_map.get(sbp, "")
-                }
-
-        imei_to_aps = raw_imei_clean.groupby(col_J)[col_C].unique().apply(list).to_dict()
-        detailed_imei_map = {}
-        for imei, aps in imei_to_aps.items():
-            if len(aps) > 1:
-                hw_info = lookup_imei(imei)
-                detailed_imei_map[str(imei)] = {
-                    "sims": [str(a) for a in aps],
-                    "hardware": hw_info if hw_info else "Unknown Device",
-                    "alias": alias_map.get(str(imei), "")
-                }
+                node_profiles[sbp] = {"total": len(b_df), "first": valid_dt.min().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown", "last": valid_dt.max().strftime("%Y-%m-%d %H:%M:%S") if not valid_dt.empty else "Unknown", "top_loc": str(b_areas.get(b_p, "Unknown")), "alias": alias_map.get(sbp, "")}
 
         sim_to_imei_map = {str(ap): [{"imei": str(i), "hw": lookup_imei(i) or "Generic Handset", "alias": alias_map.get(str(i), "")} for i in imeis] for ap, imeis in ap_to_imeis.items() if str(ap) != 'nan'}
-        
-        common_nums = set(extracted_common) if not is_single_file else set()
-        uncommon_map = {a: [] for a in unique_a_parties}
-        common_map = {}
-        for _, row in combined_df.iterrows():
-            a, b = str(row[col_C]), str(row[col_D])
-            if b in common_nums:
-                if b not in common_map: common_map[b] = set()
-                common_map[b].add(a)
-            else:
-                if b not in uncommon_map[a]: uncommon_map[a].append(b)
-        
-        for a in uncommon_map: uncommon_map[a] = list(set(uncommon_map[a]))
 
         graph_data = json.dumps({
             "centers": unique_a_parties, 
-            "uncommon-links": [{"source": a, "target-links": t} for a, t in uncommon_map.items()], 
-            "common-links": [{"target": cb, "source": list(s)} for cb, s in common_map.items()], 
+            "uncommon-links": [{"source": a, "target-links": list(set([str(row[col_D]) for _, row in combined_df[combined_df[col_C] == a].iterrows() if str(row[col_D]) not in extracted_common]))} for a in unique_a_parties],
+            "common-links": [{"target": cb, "source": list(set([str(row[col_C]) for _, row in combined_df[combined_df[col_D] == cb].iterrows()]))} for cb in extracted_common],
             "area_clusters": area_clusters, 
             "all_party_areas": {**a_areas, **b_areas},
             "node_profiles": node_profiles,
             "imei_to_sim_map": detailed_imei_map,
             "sim_to_imei_graph": sim_to_imei_data,
             "sim_to_imei_map": sim_to_imei_map,
-            "preview_rows": preview_data,
-            "alias_map": alias_map
+            "preview_rows_json": preview_data_json,
+            "alias_map": alias_map,
+            "hourly_activity": hourly_activity
         }, ensure_ascii=False)
 
-        return {"status": "success", "output_path": output_excel_path, "metrics": {"a_parties": summary_a_parties_str, "top_b_parties": top_b_data, "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_str, "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str, "night_routine": summary_night_routine_str, "area_clusters": area_clusters, "hourly_activity": hourly_activity, "preview_rows": preview_data, "graph_data": graph_data}}
+        return {"status": "success", "output_path": output_excel_path, "metrics": {"a_parties": summary_a_parties_str, "top_b_parties": top_b_data, "night_stays": summary_night_stays_str, "common_b_parties": summary_common_b_str, "imei_swappers": summary_imei_swappers_str, "multi_sim": summary_multi_sim_str, "night_routine": summary_night_routine_str, "area_clusters": area_clusters, "hourly_activity": hourly_activity, "preview_rows_json": preview_data_json, "graph_data": graph_data}}
     except Exception as e: return {"status": "error", "message": f"Engine failure: {str(e)}"}
 
 def export_same_location_to_excel(json_data, output_path):
@@ -323,8 +319,12 @@ def search_cdr_data(file_paths, search_query):
         for path in file_paths:
             if not os.path.exists(path): continue
             try:
-                df = pd.read_excel(path, engine="openpyxl", dtype=str)
-                if df.empty or len(df.columns) < 12: continue
+                if path.lower().endswith('.pdf'):
+                    df = pdf_converter.pdf_to_dataframe(path)
+                else:
+                    df = pd.read_excel(path, engine="openpyxl", dtype=str)
+                
+                if df is None or df.empty or len(df.columns) < 12: continue
                 nums = df[df.columns[2]].apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:]).unique()
                 a_party = nums[-1] if len(nums) > 0 else "Unknown"
                 df['_internal_a'] = a_party
@@ -338,34 +338,31 @@ def search_cdr_data(file_paths, search_query):
         for term in terms:
             mask = combined.astype(str).apply(lambda col: col.str.contains(term, case=False, na=False)).any(axis=1)
             match_df = combined[mask]
-            if match_df.empty:
-                dialog_lines.append(f"<font color='#E53E3E'><b>Term: {term}</b></font><br/>&nbsp;&nbsp;Status: <i>Not Found in Database</i>")
-            else:
-                hit_cols = []
-                for col in combined.columns:
-                    if not str(col).startswith('_internal'):
-                        if match_df[col].astype(str).str.contains(term, case=False, na=False).any():
-                            hit_cols.append(str(col))
+            if not match_df.empty:
                 suspects = sorted(list(set(match_df['_internal_a'].astype(str).tolist())))
                 hours = match_df['_internal_time'].dt.hour
                 night_count = len(hours[(hours >= 18) | (hours < 6)])
                 intensity = "Night Heavy" if night_count > len(match_df)/2 else "Day Heavy"
                 locs = match_df['_internal_loc'][match_df['_internal_loc'] != ''].value_counts().head(3)
                 loc_str = ", ".join(locs.index) if not locs.empty else "N/A"
-                res = [
-                    f"<b>Term: <font color='#3182CE'>{term}</font></b>",
-                    f"• Linked Suspects: {', '.join([format_with_alias(s, alias_map) for s in suspects])}",
-                    f"• Match Found In: {', '.join(hit_cols[:3])}",
-                    f"• Frequency: {len(match_df)} hits ({intensity})",
-                    f"• Top Locations: {loc_str}"
-                ]
-                dialog_lines.append("<br/>".join(res))
+                dialog_lines.append(f"<b>Term: <font color='#3182CE'>{term}</font></b><br/>• Linked Suspects: {', '.join([format_with_alias(s, alias_map) for s in suspects])}<br/>• Frequency: {len(match_df)} hits ({intensity})<br/>• Top Locations: {loc_str}")
+            else: dialog_lines.append(f"<font color='#E53E3E'><b>Term: {term}</b></font><br/>&nbsp;&nbsp;Status: <i>Not Found</i>")
         return {"status": "success", "summary_html": "<br/><br/>".join(dialog_lines)}
     except Exception as e: return {"status": "error", "message": str(e)}
 
 def crop_cdr_data(file_paths, location_query, start_ts, end_ts, output_dir):
     try:
-        all_dfs = [pd.read_excel(p, engine="openpyxl", dtype=str) for p in file_paths if os.path.exists(p)]
+        all_dfs = []
+        for p in file_paths:
+            if not os.path.exists(p): continue
+            try:
+                if p.lower().endswith('.pdf'):
+                    df = pdf_converter.pdf_to_dataframe(p)
+                else:
+                    df = pd.read_excel(p, engine="openpyxl", dtype=str)
+                if not df.empty: all_dfs.append(df)
+            except: continue
+            
         if not all_dfs: return {"status": "error", "message": "No data."}
         combined = pd.concat(all_dfs, ignore_index=True)
         temp_time = pd.to_datetime(combined[combined.columns[0]], errors='coerce')
@@ -385,23 +382,39 @@ def same_location_analysis(file_paths, progress_callback=None):
     try:
         paths = [str(p).strip() for p in file_paths if p and str(p) != 'None' and len(str(p)) > 5]
         alias_map = load_aliases()
-        if len(paths) < 2:
-            return {"status": "error", "message": f"Need at least 2 CDRs. Found: {len(paths)} valid files."}
+        if len(paths) < 2: return {"status": "error", "message": f"Need at least 2 CDRs. Found: {len(paths)}."}
         all_data = []
         for p in paths:
             if os.path.exists(p):
-                df = pd.read_excel(p, engine="openpyxl", dtype=str)
+                try:
+                    if p.lower().endswith('.pdf'):
+                        df = pdf_converter.pdf_to_dataframe(p)
+                    else:
+                        df = pd.read_excel(p, engine="openpyxl", dtype=str)
+                except:
+                    continue
+
                 if not df.empty and len(df.columns) >= 12:
                     t = pd.DataFrame()
-                    t['R'] = pd.to_datetime(df[df.columns[0]], errors='coerce')
+                    # Try flexible date parsing for PDF/Excel mixed sources
+                    t['R'] = pd.to_datetime(df[df.columns[0]], errors='coerce', dayfirst=True)
+                    # If parsing failed for some rows, try without dayfirst
+                    mask = t['R'].isna()
+                    if mask.any():
+                        t.loc[mask, 'R'] = pd.to_datetime(df.loc[mask, df.columns[0]], errors='coerce')
+                    
                     t['D'] = t['R'].dt.date
                     t['S'] = df[df.columns[0]].fillna('').astype(str)
-                    t['A'] = df[df.columns[2]].fillna('').astype(str).str.strip()
-                    t['B'] = df[df.columns[3]].fillna('').astype(str).str.strip()
+                    t['A'] = df[df.columns[2]].fillna('').astype(str).str.strip().apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:])
+                    t['B'] = df[df.columns[3]].fillna('').astype(str).str.strip().apply(lambda x: "".join(c for c in str(x) if c.isdigit())[-11:])
                     t['L'] = df[df.columns[7]].fillna('').astype(str).str.strip().apply(lambda x: str(x).split('.')[0])
                     t['C'] = df[df.columns[8]].fillna('').astype(str).str.strip().apply(lambda x: str(x).split('.')[0])
                     t['Loc'] = df[df.columns[11]].fillna('').astype(str).str.strip()
-                    all_data.append(t)
+                    
+                    # Basic Validation: Must have a valid Date and A Party
+                    t = t[t['D'].notna() & (t['A'] != '')]
+                    if not t.empty:
+                        all_data.append(t)
         if len(all_data) < 2: return {"status": "error", "message": "Insufficient valid data."}
         combined = pd.concat(all_data, ignore_index=True).dropna(subset=['D', 'A'])
         results = []
@@ -432,7 +445,7 @@ def same_location_analysis(file_paths, progress_callback=None):
             if progress_callback:
                 progress_callback.onProgress(int((i + 1) / total_days * 100))
 
-        if not results: return {"status": "success", "data": "[]", "summary": "No spatial overlaps detected."}
+        if not results: return {"status": "success", "data": "[]", "summary": "No spatial overlaps or concurrent tower hits detected between these parties."}
         final_df = pd.DataFrame(results).drop_duplicates(subset=['Time', 'A_Party'])
         try:
             summary_df = final_df.copy()
@@ -453,19 +466,13 @@ def same_location_analysis(file_paths, progress_callback=None):
             for i, (p_key, times_set) in enumerate(sorted_sets):
                 label = list(string.ascii_lowercase)[i % 26] if i < 26 else f"z{i}"
                 times_list = sorted(list(times_set), reverse=True)
-                count = len(times_list)
-                display_times = " | ".join(times_list[:5])
-                if count > 5: display_times += " ..."
-                summary_lines.append(f"{label}. Parties {p_key} were found around each other [{count}] times. The times are: {display_times}")
-            spatial_summary = "\n".join(summary_lines) if summary_lines else "No concurrent spatial overlaps detected."
-        except Exception as e:
-            spatial_summary = f"Summary calculation error: {str(e)}"
+                summary_lines.append(f"{label}. Parties {p_key} were found around each other [{len(times_list)}] times. The times are: {' | '.join(times_list[:5])}")
+            spatial_summary = "\n".join(summary_lines) if summary_lines else "No concurrent overlaps."
+        except Exception as e: spatial_summary = f"Summary error: {str(e)}"
         
-        # Add alias to results data for table display
         data_list = final_df.sort_values('Time', ascending=False).head(1500).to_dict('records')
         for item in data_list:
             item['A_Party'] = format_with_alias(item['A_Party'], alias_map)
             item['B_Party'] = format_with_alias(item['B_Party'], alias_map)
-            
         return {"status": "success", "data": json.dumps(data_list, ensure_ascii=False), "summary": spatial_summary}
     except Exception as e: return {"status": "error", "message": f"Critical Error: {str(e)}"}

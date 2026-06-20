@@ -57,15 +57,38 @@
             android:textSize="14sp"
             android:inputType="text"/>
 
-        <Button
-            android:id="@+id/btnSelectFiles"
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:text="Select CDR Excel Sheets"
-            android:backgroundTint="#2C3E50"
-            android:textColor="#FFFFFF"
-            android:textAllCaps="false"
-            android:layout_marginBottom="8dp"/>
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp"
+            android:weightSum="2">
+
+            <Button
+                android:id="@+id/btnSelectExcel"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="@string/btn_select_excel"
+                android:backgroundTint="#27AE60"
+                android:textColor="#FFFFFF"
+                android:textAllCaps="false"
+                android:layout_marginEnd="4dp"/>
+
+            <Button
+                android:id="@+id/btnSelectPdf"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_weight="1"
+                android:text="@string/btn_select_pdf"
+                android:backgroundTint="#FFFFFF"
+                android:textColor="#C0392B"
+                android:textAllCaps="false"
+                android:layout_marginStart="4dp"
+                app:strokeColor="#C0392B"
+                app:strokeWidth="1.5dp"
+                style="@style/Widget.Material3.Button.OutlinedButton"/>
+        </LinearLayout>
 
         <Button
             android:id="@+id/btnCropLauncher"

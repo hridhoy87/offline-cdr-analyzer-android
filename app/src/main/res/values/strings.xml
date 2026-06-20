@@ -53,7 +53,7 @@
     <string name="close">Close</string>
     <string name="ok">OK</string>
     <string name="copy_and_share">Copy and Share</string>
-    <string name="peek_title">📊 Intelligence Preview (Top 50)</string>
+    <string name="peek_title">📊 Intelligence Preview (Top 100 Mobile B-Parties)</string>
     <string name="peek_share_title">CDR Intelligence Preview</string>
     <string name="back_icon_of_link_analysis">Back</string>
     <string name="loading_logo_description">Loading Logo</string>
@@ -68,6 +68,9 @@
     <string name="detected_towers_title">📍 Detected Tower Locations</string>
     <string name="processing_geospatial">Processing CDR geospatial footprint...</string>
     <string name="no_geospatial_data">No geospatial data found in current CDRs.</string>
+    <string name="btn_select_excel">📗 Excel CDR</string>
+    <string name="btn_select_pdf">📕 PDF CDR</string>
+    <string name="pdf_speed_warning">⚠️ PDF extraction is significantly slower than Excel. Please stay on this screen while processing.</string>
     <string name="logo_android_studio">Android Studio</string>
     <string name="logo_java">Java</string>
     <string name="logo_python">Python</string>
