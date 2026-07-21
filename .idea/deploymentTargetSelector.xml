@@ -20,17 +20,17 @@
         </DialogSelection>
       </SelectionState>
       <SelectionState runConfigName="androidTest">
-        <option name="selectionMode" value="DIALOG" />
+        <option name="selectionMode" value="DROPDOWN" />
         <DialogSelection>
           <targets>
             <Target type="DEFAULT_BOOT">
               <handle>
-                <DeviceId pluginId="PhysicalDevice" identifier="serial=69PFRSUGTO8DM7DQ" />
+                <DeviceId pluginId="PhysicalDevice" identifier="serial=RZCY5177DDR" />
               </handle>
             </Target>
             <Target type="DEFAULT_BOOT">
               <handle>
-                <DeviceId pluginId="PhysicalDevice" identifier="serial=RZCY5177DDR" />
+                <DeviceId pluginId="PhysicalDevice" identifier="serial=69PFRSUGTO8DM7DQ" />
               </handle>
             </Target>
           </targets>

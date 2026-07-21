@@ -164,18 +164,21 @@ public class CropActivity extends AppCompatActivity {
                     selectedFiles.toArray(new String[0]), location, startTs, endTs, dir.getAbsolutePath());
                 
                 Map<PyObject, PyObject> resultMap = result.asMap();
-                String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
+                PyObject pyStatus = resultMap.get(py.getBuiltins().get("str").call("status"));
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
                 
                 runOnUiThread(() -> {
                     if ("success".equals(status)) {
-                        lastCroppedPath = resultMap.get(py.getBuiltins().get("str").call("output_path")).toString();
+                        PyObject pyOutputPath = resultMap.get(py.getBuiltins().get("str").call("output_path"));
+                        lastCroppedPath = (pyOutputPath != null) ? pyOutputPath.toString() : "";
                         cropStatusText.setText("Saved: " + new File(lastCroppedPath).getName());
                         btnOpenCroppedExcel.setVisibility(View.VISIBLE);
                         Toast.makeText(this, "Cropped file exported to Documents/CDR_Reports", Toast.LENGTH_LONG).show();
                         
                         showProcessDialog();
                     } else {
-                        cropStatusText.setText("Error: " + resultMap.get(py.getBuiltins().get("str").call("message")));
+                        PyObject pyMsg = resultMap.get(py.getBuiltins().get("str").call("message"));
+                        cropStatusText.setText("Error: " + ((pyMsg != null) ? pyMsg.toString() : "Unknown error"));
                     }
                 });
             } catch (Exception e) {

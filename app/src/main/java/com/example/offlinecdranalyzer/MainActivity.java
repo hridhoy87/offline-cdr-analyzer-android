@@ -405,9 +405,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void generatePdfReport() {
-        if (!isAnalysisReady || lastGeneratedReportPath == null) {
+        if (lastGeneratedReportPath == null) {
             Toast.makeText(this, "Please run analysis first", Toast.LENGTH_SHORT).show();
             return;
+        }
+
+        // Logic for Single vs Multiple CDRs
+        if (selectedFilePaths.size() > 1) {
+            if (!isAnalysisReady) {
+                // If it's not ready, we wait. We can set a flag and call generatePdfReport again from startSilentSameLocationAnalysis
+                isWaitingForAnalysis = true;
+                Toast.makeText(this, "Waiting for Movement Analysis to complete...", Toast.LENGTH_SHORT).show();
+                runSameLocationAnalysis(); // This will show the progress container
+                return;
+            }
         }
 
         loadingContainer.setVisibility(View.VISIBLE);
@@ -428,16 +439,17 @@ public class MainActivity extends AppCompatActivity {
                 // 2. Prepare Summary HTML
                 String summary = lastSummaryHtml != null ? lastSummaryHtml : "No Summary Available";
 
-                // 3. Prepare Preview Rows (already in lastPreviewRows)
-                
-                // 4. Read Same Location JSON from temp file
+                // 3. Prepare Same Location JSON & Summary
                 String sameLocJson = "[]";
-                if (lastSameLocationJson != null) {
-                    File file = new File(lastSameLocationJson);
-                    if (file.exists()) {
-                        byte[] encoded = java.nio.file.Files.readAllBytes(file.toPath());
-                        sameLocJson = new String(encoded, java.nio.charset.StandardCharsets.UTF_8);
+                String spatialSum = lastSpatialSummary;
+                
+                if (selectedFilePaths.size() > 1) {
+                    if (lastSameLocationJson != null) {
+                        sameLocJson = readFileFromDisk(lastSameLocationJson);
+                        if (sameLocJson == null) sameLocJson = "[]";
                     }
+                } else {
+                    spatialSum = "--One CDR provided. No colocated CDR analysis could be performed--";
                 }
 
                 // 5. CDR Names
@@ -459,16 +471,16 @@ public class MainActivity extends AppCompatActivity {
                 PyObject htmlResult = pyModule.callAttr("generate_case_report_html",
                         caseName,
                         summary,
-                        lastGraphData, // Pass unified JSON string
+                        lastGraphData, 
                         sameLocJson,
                         aliasMap,
                         locReq,
                         timeline,
                         cdrNames.toArray(new String[0]),
-                        lastSpatialSummary
+                        spatialSum
                 );
 
-                String finalHtml = htmlResult.toString();
+                String finalHtml = (htmlResult != null) ? htmlResult.toString() : "<html><body>Error generating report</body></html>";
 
                 runOnUiThread(() -> {
                     loadingContainer.setVisibility(View.GONE);
@@ -798,7 +810,8 @@ public class MainActivity extends AppCompatActivity {
                 String[] pathsArray = selectedFilePaths.toArray(new String[0]);
                 PyObject result = pyModule.callAttr("process_cdr_data", pathsArray, location, outputDir, startTs, endTs);
                 Map<PyObject, PyObject> resultMap = result.asMap();
-                String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
+                PyObject pyStatus = resultMap.get(py.getBuiltins().get("str").call("status"));
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
 
                 runOnUiThread(() -> {
                     loadingLogo.clearAnimation();
@@ -810,7 +823,8 @@ public class MainActivity extends AppCompatActivity {
                         // Silent Background Pre-processing for Same Location Analysis
                         startSilentSameLocationAnalysis();
                     } else {
-                        statusText.setText(getString(R.string.error_prefix, resultMap.get(py.getBuiltins().get("str").call("message")).toString()));
+                        PyObject pyMsg = resultMap.get(py.getBuiltins().get("str").call("message"));
+                        statusText.setText(getString(R.string.error_prefix, (pyMsg != null) ? pyMsg.toString() : "Unknown Python error"));
                         statusText.setTextColor(Color.RED);
                     }
                 });
@@ -829,21 +843,38 @@ public class MainActivity extends AppCompatActivity {
     private void populateResults(Map<PyObject, PyObject> result) {
         try {
             Python py = Python.getInstance();
-            lastGeneratedReportPath = result.get(py.getBuiltins().get("str").call("output_path")).toString();
-            Map<PyObject, PyObject> metrics = result.get(py.getBuiltins().get("str").call("metrics")).asMap();
+            PyObject pyOutputPath = result.get(py.getBuiltins().get("str").call("output_path"));
+            lastGeneratedReportPath = (pyOutputPath != null) ? pyOutputPath.toString() : null;
             
-            lastPreviewJson = metrics.get(py.getBuiltins().get("str").call("preview_rows_json")).toString();
+            // Read Preview and Graph data from Cache Files
+            PyObject pyPreviewCache = result.get(py.getBuiltins().get("str").call("preview_cache"));
+            String previewCachePath = (pyPreviewCache != null) ? pyPreviewCache.toString() : null;
+            if (previewCachePath != null) lastPreviewJson = readFileFromDisk(previewCachePath);
+            
+            PyObject pyGraphCache = result.get(py.getBuiltins().get("str").call("graph_cache"));
+            String graphCachePath = (pyGraphCache != null) ? pyGraphCache.toString() : null;
+            if (graphCachePath != null) lastGraphData = readFileFromDisk(graphCachePath);
 
-            List<PyObject> topBList = metrics.get(py.getBuiltins().get("str").call("top_b_parties")).asList();
+            PyObject pyMetrics = result.get(py.getBuiltins().get("str").call("metrics"));
+            if (pyMetrics == null) throw new Exception("Metrics missing from engine response");
+            Map<PyObject, PyObject> metrics = pyMetrics.asMap();
+
+            PyObject pyTopB = metrics.get(py.getBuiltins().get("str").call("top_b_parties"));
+            List<PyObject> topBList = (pyTopB != null) ? pyTopB.asList() : new java.util.ArrayList<>();
             StringBuilder topBHtml = new StringBuilder(), topBPlain = new StringBuilder();
             SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
             SimpleDateFormat outputFormat = new SimpleDateFormat("ddHHmm MMM yy", Locale.US);
 
             for (PyObject item : topBList) {
                 Map<PyObject, PyObject> itemMap = item.asMap();
-                String bParty = itemMap.get(py.getBuiltins().get("str").call("b_party")).toString();
-                String freq = itemMap.get(py.getBuiltins().get("str").call("frequency")).toString();
-                String lastCalled = itemMap.get(py.getBuiltins().get("str").call("last_called")).toString(), tinyDate = lastCalled;
+                PyObject pyBp = itemMap.get(py.getBuiltins().get("str").call("b_party"));
+                PyObject pyFreq = itemMap.get(py.getBuiltins().get("str").call("frequency"));
+                PyObject pyLc = itemMap.get(py.getBuiltins().get("str").call("last_called"));
+                
+                String bParty = (pyBp != null) ? pyBp.toString() : "Unknown";
+                String freq = (pyFreq != null) ? pyFreq.toString() : "0";
+                String lastCalled = (pyLc != null) ? pyLc.toString() : "--";
+                String tinyDate = lastCalled;
                 try {
                     Date date = inputFormat.parse(lastCalled);
                     if (date != null) tinyDate = outputFormat.format(date);
@@ -855,8 +886,10 @@ public class MainActivity extends AppCompatActivity {
                 topBPlain.append(line).append("\n");
             }
 
-            String rawCommonB = metrics.get(py.getBuiltins().get("str").call("common_b_parties")).toString();
-            String rawNightStays = metrics.get(py.getBuiltins().get("str").call("night_stays")).toString();
+            PyObject pyCommonB = metrics.get(py.getBuiltins().get("str").call("common_b_parties"));
+            PyObject pyNightStays = metrics.get(py.getBuiltins().get("str").call("night_stays"));
+            String rawCommonB = (pyCommonB != null) ? pyCommonB.toString() : "None";
+            String rawNightStays = (pyNightStays != null) ? pyNightStays.toString() : "Insufficient Data";
 
             summaryAParties.setText(Html.fromHtml(getString(R.string.summary_a_parties, metrics.get(py.getBuiltins().get("str").call("a_parties"))), Html.FROM_HTML_MODE_COMPACT));
             summaryTopThree.setText(Html.fromHtml(getString(R.string.summary_top_b_parties, topBHtml.toString()), Html.FROM_HTML_MODE_COMPACT));
@@ -884,7 +917,8 @@ public class MainActivity extends AppCompatActivity {
                               "<b>Common Contacts:</b> " + rawCommonB;
 
             summaryCardContent.setOnClickListener(v -> {
-                String aParties = metrics.get(py.getBuiltins().get("str").call("a_parties")).toString();
+                PyObject pyAp = metrics.get(py.getBuiltins().get("str").call("a_parties"));
+                String aParties = (pyAp != null) ? pyAp.toString() : "Unknown";
                 String commonB = (!"None".equalsIgnoreCase(rawCommonB) && !"N/A (Single File Uploaded)".equalsIgnoreCase(rawCommonB)) ? rawCommonB.replace(", ", ",\n") : rawCommonB;
                 String fullSummary = "🎯 A Parties:\n" + aParties + "\n\n🔥 Top Bps:\n" + topBPlain + "\n\n🌙 " + nightStaysPlain + "\n🔗 Common Bps:\n" + commonB;
                 ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -893,23 +927,30 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, R.string.summary_share_toast, Toast.LENGTH_SHORT).show();
             });
 
-            String imei = metrics.get(py.getBuiltins().get("str").call("imei_swappers")).toString();
+            PyObject pyImei = metrics.get(py.getBuiltins().get("str").call("imei_swappers"));
+            String imei = (pyImei != null) ? pyImei.toString() : "Normal";
             badgeImei.setText(imei.contains(getString(R.string.imei_swappers_prefix)) ? "🚨 " + imei : "🛡️ " + imei);
-            String multiSim = metrics.get(py.getBuiltins().get("str").call("multi_sim")).toString();
+            
+            PyObject pyMulti = metrics.get(py.getBuiltins().get("str").call("multi_sim"));
+            String multiSim = (pyMulti != null) ? pyMulti.toString() : "Normal";
             badgeMultiSim.setText(multiSim.contains(getString(R.string.multi_sim_prefix)) ? "⚠️ " + multiSim : "🛡️ " + multiSim);
-            badgeNightRoutine.setText("🕒 " + metrics.get(py.getBuiltins().get("str").call("night_routine")));
-            lastGraphData = metrics.get(py.getBuiltins().get("str").call("graph_data")).toString();
+            
+            PyObject pyNight = metrics.get(py.getBuiltins().get("str").call("night_routine"));
+            badgeNightRoutine.setText("🕒 " + ((pyNight != null) ? pyNight.toString() : "Normal"));
 
             btnLinkAnalysis.setVisibility(View.VISIBLE);
             btnSameLocation.setVisibility(View.VISIBLE);
 
             // Render Temporal Heatmaps for each A-party
             heatmapContainer.removeAllViews();
-            Map<PyObject, PyObject> hourlyActivity = metrics.get(py.getBuiltins().get("str").call("hourly_activity")).asMap();
-            for (Map.Entry<PyObject, PyObject> entry : hourlyActivity.entrySet()) {
-                String aParty = entry.getKey().toString();
-                Map<PyObject, PyObject> hourDist = entry.getValue().asMap();
-                renderTemporalHeatmap(aParty, hourDist);
+            PyObject pyHourly = metrics.get(py.getBuiltins().get("str").call("hourly_activity"));
+            if (pyHourly != null) {
+                Map<PyObject, PyObject> hourlyActivity = pyHourly.asMap();
+                for (Map.Entry<PyObject, PyObject> entry : hourlyActivity.entrySet()) {
+                    String aParty = entry.getKey().toString();
+                    Map<PyObject, PyObject> hourDist = entry.getValue().asMap();
+                    renderTemporalHeatmap(aParty, hourDist);
+                }
             }
 
             resultsContainer.setVisibility(View.VISIBLE);
@@ -917,6 +958,7 @@ public class MainActivity extends AppCompatActivity {
             statusText.setTextColor(Color.parseColor("#2C3E50"));
         } catch (Exception e) {
             statusText.setText(getString(R.string.display_error, e.getMessage()));
+            e.printStackTrace();
         }
     }
 
@@ -928,47 +970,47 @@ public class MainActivity extends AppCompatActivity {
         currentAnalysisProgress = 0;
         lastSameLocationJson = null;
 
+        String startTs = null, endTs = null;
+        if (filterStartCal != null && filterEndCal != null) {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+            startTs = sdf.format(filterStartCal.getTime());
+            endTs = sdf.format(filterEndCal.getTime());
+        }
+        final String fStart = startTs, fEnd = endTs;
+
         backgroundAnalysisThread = new Thread(() -> {
             try {
                 Python py = Python.getInstance();
                 PyObject pyModule = py.getModule("index");
                 String[] pathsArray = selectedFilePaths.toArray(new String[0]);
                 
-                // Define a progress callback for Python
+                File reportDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
+                String outputDir = reportDir.getAbsolutePath();
+
                 ProgressListener listener = progress -> {
                     currentAnalysisProgress = progress;
                     runOnUiThread(() -> {
+                        btnSameLocation.setText("📍 Processing... " + progress + "%");
                         if (locProgressContainer.getVisibility() == View.VISIBLE) {
                             locProgressBar.setProgress(progress);
                             locProgressText.setText(progress + "%");
-                            
-                            // Ensure animation is running if visible
-                            if (locLoadingIcon.getAnimation() == null) {
-                                Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
-                                locLoadingIcon.startAnimation(pulse);
-                            }
                         }
                     });
                 };
 
-                PyObject locResult = pyModule.callAttr("same_location_analysis", pathsArray, listener);
+                PyObject locResult = pyModule.callAttr("same_location_analysis", pathsArray, outputDir, fStart, fEnd, listener);
                 Map<PyObject, PyObject> locMap = locResult.asMap();
                 
                 PyObject pyStatus = locMap.get(py.getBuiltins().get("str").call("status"));
-                String status = (pyStatus != null) ? pyStatus.toString() : "error";
-                
-                PyObject pyData = locMap.get(py.getBuiltins().get("str").call("data"));
-                String dataJson = (pyData != null) ? pyData.toString() : "[]";
-                
+                PyObject pyCachePath = locMap.get(py.getBuiltins().get("str").call("cache_path"));
                 PyObject pySummary = locMap.get(py.getBuiltins().get("str").call("summary"));
-                lastSpatialSummary = (pySummary != null) ? pySummary.toString() : null;
 
-                if ("success".equals(status) && dataJson.length() > 5) {
-                    File tempFile = new File(getCacheDir(), "same_loc_results.json");
-                    FileOutputStream fos = new FileOutputStream(tempFile);
-                    fos.write(dataJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                    fos.close();
-                    lastSameLocationJson = tempFile.getAbsolutePath();
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
+                String cachePath = (pyCachePath != null) ? pyCachePath.toString() : "";
+                lastSpatialSummary = (pySummary != null) ? pySummary.toString() : "No summary available";
+
+                if ("success".equals(status) && !cachePath.isEmpty()) {
+                    lastSameLocationJson = cachePath;
                     isAnalysisReady = true;
                 }
             } catch (Exception e) {
@@ -978,12 +1020,24 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     locLoadingIcon.clearAnimation();
                     if (isAnalysisReady) {
-                        locProgressBar.setProgress(100);
-                        locProgressText.setText("100%");
-                        Toast.makeText(MainActivity.this, "📍 Movement Analysis Ready!", Toast.LENGTH_SHORT).show();
-                        // Change button look to indicate readiness if you like
-                        btnSameLocation.setText("📍 View Movement Analysis (Ready)");
+                        btnSameLocation.setText("📍 Movement Analysis Ready!");
+                        
+                        if (isWaitingForAnalysis) {
+                            isWaitingForAnalysis = false;
+                            generatePdfReport();
+                        }
+
+                        if (locProgressContainer.getVisibility() == View.VISIBLE) {
+                            locProgressBar.setProgress(100);
+                            locProgressText.setText("100%");
+                            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                                runSameLocationAnalysis();
+                            }, 500);
+                        } else {
+                            Toast.makeText(MainActivity.this, "📍 Movement Analysis Ready!", Toast.LENGTH_SHORT).show();
+                        }
                     } else {
+                        btnSameLocation.setText("📍 Movement Analysis Failed");
                         locProgressContainer.setVisibility(View.GONE);
                     }
                 });
@@ -999,10 +1053,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void runSameLocationAnalysis() {
         if (isAnalysisReady && lastSameLocationJson != null) {
-            // Standard launch
-            btnSameLocation.setEnabled(false);
-            new Handler(Looper.getMainLooper()).postDelayed(() -> btnSameLocation.setEnabled(true), 1000);
-
+            locProgressContainer.setVisibility(View.GONE);
             Intent intent = new Intent(this, SameLocationActivity.class);
             intent.putExtra("loc_json_path", lastSameLocationJson);
             intent.putStringArrayListExtra("file_paths", new ArrayList<>(selectedFilePaths));
@@ -1011,31 +1062,23 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (isAnalysisRunning) {
-            // If already waiting, don't start another wait thread
-            if (locProgressContainer.getVisibility() == View.VISIBLE) {
-                Toast.makeText(this, "Still calculating movement overlaps...", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            // Show the progress container but DON'T auto-launch activity when done.
-            // This prevents "UI Hijacking" if the user is doing something else.
             locProgressContainer.setVisibility(View.VISIBLE);
             locProgressBar.setProgress(currentAnalysisProgress);
             locProgressText.setText(currentAnalysisProgress + "%");
             
-            Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
-            locLoadingIcon.startAnimation(pulse);
-            
-            Toast.makeText(this, "Movement analysis is running in background. Button will activate when ready.", Toast.LENGTH_LONG).show();
+            if (locLoadingIcon.getAnimation() == null) {
+                Animation pulse = AnimationUtils.loadAnimation(this, R.anim.pulse);
+                locLoadingIcon.startAnimation(pulse);
+            }
+            Toast.makeText(this, "Movement analysis is running...", Toast.LENGTH_SHORT).show();
             return;
         }
 
         if (selectedFilePaths.size() < 2) {
-            Toast.makeText(this, "Requires at least 2 CDRs for movement correlation.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Requires 2+ CDRs for movement correlation.", Toast.LENGTH_SHORT).show();
             return;
         }
         
-        // If not running and not ready, start it
         startSilentSameLocationAnalysis();
         locProgressContainer.setVisibility(View.VISIBLE);
     }
@@ -1064,16 +1107,21 @@ public class MainActivity extends AppCompatActivity {
                 Python py = Python.getInstance();
                 PyObject result = py.getModule("index").callAttr("search_cdr_data", selectedFilePaths.toArray(new String[0]), query);
                 Map<PyObject, PyObject> resultMap = result.asMap();
-                String status = resultMap.get(py.getBuiltins().get("str").call("status")).toString();
+                
+                PyObject pyStatus = resultMap.get(py.getBuiltins().get("str").call("status"));
+                String status = (pyStatus != null) ? pyStatus.toString() : "error";
+                
                 runOnUiThread(() -> {
                     loadingLogo.clearAnimation();
                     rippleEffect.clearAnimation();
                     loadingContainer.setVisibility(View.GONE);
                     swipeRefreshLayout.setEnabled(mainScrollView.getScrollY() == 0);
                     if ("success".equals(status)) {
-                        showSearchResultsDialog(resultMap.get(py.getBuiltins().get("str").call("summary_html")).toString());
+                        PyObject pyHtml = resultMap.get(py.getBuiltins().get("str").call("summary_html"));
+                        showSearchResultsDialog((pyHtml != null) ? pyHtml.toString() : "No results");
                     } else {
-                        Toast.makeText(this, getString(R.string.search_error, resultMap.get(py.getBuiltins().get("str").call("message"))), Toast.LENGTH_LONG).show();
+                        PyObject pyMsg = resultMap.get(py.getBuiltins().get("str").call("message"));
+                        Toast.makeText(this, getString(R.string.search_error, (pyMsg != null) ? pyMsg.toString() : "Unknown"), Toast.LENGTH_LONG).show();
                     }
                 });
             } catch (Exception e) {
@@ -1419,5 +1467,19 @@ public class MainActivity extends AppCompatActivity {
             outputStream.flush(); outputStream.close(); inputStream.close();
             return tempFile.getAbsolutePath();
         } catch (Exception e) { return null; }
+    }
+
+    private String readFileFromDisk(String path) {
+        try {
+            File file = new File(path);
+            if (!file.exists()) return null;
+            java.io.FileInputStream fis = new java.io.FileInputStream(file);
+            byte[] data = new byte[(int) file.length()];
+            fis.read(data);
+            fis.close();
+            return new String(data, "UTF-8");
+        } catch (Exception e) {
+            return null;
+        }
     }
 }

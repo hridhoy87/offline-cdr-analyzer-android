@@ -36,6 +36,7 @@ android {
                 install("pandas")
                 install("openpyxl")
                 install("pdfplumber")
+                install("thefuzz")
             }
         }
     }

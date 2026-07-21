@@ -38,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -166,12 +167,20 @@ public class SameLocationActivity extends AppCompatActivity {
                     JSONObject obj = original.getJSONObject(i);
                     String timeStr = obj.optString("Time");
                     try {
-                        long ts = parseSdf.parse(timeStr).getTime();
+                        Date date = parseSdf.parse(timeStr);
+                        if (date == null) {
+                            filtered.put(obj); // Keep if unparseable? Or skip?
+                            continue;
+                        }
+                        long ts = date.getTime();
                         boolean match = true;
                         if (filterStart != null && ts < filterStart.getTimeInMillis()) match = false;
                         if (filterEnd != null && ts > filterEnd.getTimeInMillis()) match = false;
                         if (match) filtered.put(obj);
-                    } catch (Exception e) { filtered.put(obj); }
+                    } catch (Exception e) { 
+                        // If no filter is set, keep everything. If filter is set, skip errors.
+                        if (filterStart == null && filterEnd == null) filtered.put(obj);
+                    }
                 }
 
                 String filteredJson = filtered.toString();
