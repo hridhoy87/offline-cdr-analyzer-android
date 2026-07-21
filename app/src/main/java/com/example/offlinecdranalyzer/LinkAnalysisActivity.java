@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Html;
 import android.util.Base64;
 import android.view.View;
 import android.view.Window;
@@ -172,14 +173,14 @@ public class LinkAnalysisActivity extends AppCompatActivity {
 
     private void populateImeiMapping(String jsonString) {
         LinearLayout mappingLayout = findViewById(R.id.imeiMappingLayout);
-        mappingLayout.removeAllViews(); // Clear previous
+        mappingLayout.removeAllViews();
         try {
             JSONObject jsonObject = new JSONObject(jsonString);
-            if (!jsonObject.has("imei_to_sim_map")) {
+            if (!jsonObject.has("sim_to_imei_map")) {
                 showNoImeiDataMessage();
                 return;
             }
-            JSONObject mapping = jsonObject.getJSONObject("imei_to_sim_map");
+            JSONObject mapping = jsonObject.getJSONObject("sim_to_imei_map");
             if (mapping.length() == 0) {
                 showNoImeiDataMessage();
                 return;
@@ -187,32 +188,30 @@ public class LinkAnalysisActivity extends AppCompatActivity {
 
             java.util.Iterator<String> keys = mapping.keys();
             while (keys.hasNext()) {
-                String imei = keys.next();
-                JSONObject imeiData = mapping.getJSONObject(imei);
-                JSONArray sims = imeiData.getJSONArray("sims");
-                String hardware = imeiData.optString("hardware", "Generic Device");
-                String alias = imeiData.optString("alias", "");
-                String imeiLabel = imei + (alias.isEmpty() ? "" : "(📌 " + alias + ")");
+                String sim = keys.next();
+                JSONArray imeis = mapping.getJSONArray(sim);
                 
                 View itemView = getLayoutInflater().inflate(R.layout.item_histogram_bar, mappingLayout, false);
-                ((TextView) itemView.findViewById(R.id.areaName)).setText("Handset: " + hardware);
+                ((TextView) itemView.findViewById(R.id.areaName)).setText("Subscriber: " + sim);
                 
                 ProgressBar bar = itemView.findViewById(R.id.areaBar);
                 bar.setMax(8); 
-                bar.setProgress(sims.length());
+                bar.setProgress(imeis.length());
                 
-                StringBuilder simList = new StringBuilder();
-                for (int i = 0; i < sims.length(); i++) {
-                    String sim = sims.getString(i);
-                    simList.append(sim);
-                    if (i < sims.length() - 1) simList.append(", ");
+                StringBuilder imeiList = new StringBuilder();
+                for (int i = 0; i < imeis.length(); i++) {
+                    JSONObject imeiObj = imeis.getJSONObject(i);
+                    String imei = imeiObj.getString("imei");
+                    String hw = imeiObj.optString("hw", "Generic");
+                    imeiList.append("• ").append(imei).append(" (").append(hw).append(")");
+                    if (i < imeis.length() - 1) imeiList.append("<br>");
                 }
                 
                 TextView countView = itemView.findViewById(R.id.areaCount);
-                countView.setText(sims.length() + " SIMs");
+                countView.setText(imeis.length() + " Handsets");
 
                 TextView detailView = new TextView(this);
-                detailView.setText("IMEI: " + imeiLabel + "\nUsed by SIM(s): " + simList.toString());
+                detailView.setText(Html.fromHtml(imeiList.toString(), Html.FROM_HTML_MODE_COMPACT));
                 detailView.setTextSize(11);
                 detailView.setTextColor(Color.parseColor("#8b949e"));
                 detailView.setPadding(40, 0, 0, 30);
@@ -235,13 +234,19 @@ public class LinkAnalysisActivity extends AppCompatActivity {
     }
 
     private String readDataFromFile(String path) {
+        if (path == null) return null;
         try {
             File file = new File(path);
+            if (!file.exists()) return null;
             java.io.FileInputStream fis = new java.io.FileInputStream(file);
-            byte[] data = new byte[(int) file.length()];
-            int read = fis.read(data);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = fis.read(buffer)) != -1) {
+                bos.write(buffer, 0, len);
+            }
             fis.close();
-            return new String(data, 0, read, java.nio.charset.StandardCharsets.UTF_8);
+            return bos.toString("UTF-8");
         } catch (Exception e) {
             e.printStackTrace();
             return null;

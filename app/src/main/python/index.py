@@ -139,8 +139,9 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         filtered_df["Frequency"] = filtered_df[col_D].map(freq_map).fillna(0).astype(int)
 
         b_to_as = combined_df.groupby(col_D)[col_C].nunique()
-        extracted_common = b_to_as[b_to_as > 1].index.tolist()
-        summary_common_b_str = ", ".join([format_with_alias(b, alias_map) for b in extracted_common]) if not is_single_file and extracted_common else "None"
+        extracted_common = [b for b, count in b_to_as.items() if count > 1 and len(str(b)) >= 5]
+        
+        summary_common_b_str = ", ".join([format_with_alias(b, alias_map) for b in extracted_common]) if extracted_common else "No shared contacts between different A-parties."
 
         # 5. Cache Preview Rows
         display_df = filtered_df.drop_duplicates(subset=[col_D]).sort_values(by="Frequency", ascending=False)
@@ -185,7 +186,8 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                         "total": len(combined_df[combined_df[entity_col] == item]),
                         "first": sub_df.min().strftime("%Y-%m-%d %H:%M:%S") if not sub_df.empty else "Unknown",
                         "last": sub_df.max().strftime("%Y-%m-%d %H:%M:%S") if not sub_df.empty else "Unknown",
-                        "top_loc": str(area_map.get(item, "Unknown"))
+                        "top_loc": str(area_map.get(item, "Unknown")),
+                        "imeis": ap_to_imeis.get(item, []) if entity_col == col_C else []
                     }
 
         sim_to_imei_map = {str(ap): [{"imei": str(i), "hw": lookup_imei(i) or "Generic"} for i in imeis] for ap, imeis in ap_to_imeis.items()}
@@ -209,7 +211,7 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         common_map = combined_df[combined_df[col_D].isin(common_nums)].groupby(col_D)[col_C].apply(lambda x: list(set(x))).to_dict()
         uncommon_map = combined_df[~combined_df[col_D].isin(common_nums)].groupby(col_C)[col_D].apply(lambda x: list(set(x))).to_dict()
         
-        area_clusters = [{"area": str(k), "count": int(v)} for k, v in combined_df[col_L].value_counts().head(12).items() if str(k).strip() != '']
+        area_clusters = [{"area": str(k), "count": int(v)} for k, v in combined_df[col_L].value_counts().head(12).items() if str(k).strip() not in ['', '--Empty--', 'nan', 'NaN']]
 
         graph_data = {
             "centers": unique_a_parties,

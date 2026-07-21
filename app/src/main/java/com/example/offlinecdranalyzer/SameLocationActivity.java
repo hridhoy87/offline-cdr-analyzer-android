@@ -276,13 +276,19 @@ public class SameLocationActivity extends AppCompatActivity {
     }
 
     private String readFile(String path) {
+        if (path == null) return null;
         try {
             File file = new File(path);
-            FileInputStream fis = new FileInputStream(file);
-            byte[] data = new byte[(int) file.length()];
-            int read = fis.read(data);
+            if (!file.exists()) return null;
+            java.io.FileInputStream fis = new java.io.FileInputStream(file);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = fis.read(buffer)) != -1) {
+                bos.write(buffer, 0, len);
+            }
             fis.close();
-            return new String(data, 0, read, StandardCharsets.UTF_8);
+            return bos.toString("UTF-8");
         } catch (Exception e) {
             return null;
         }

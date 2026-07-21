@@ -1470,15 +1470,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String readFileFromDisk(String path) {
+        if (path == null) return null;
         try {
             File file = new File(path);
             if (!file.exists()) return null;
             java.io.FileInputStream fis = new java.io.FileInputStream(file);
-            byte[] data = new byte[(int) file.length()];
-            fis.read(data);
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = fis.read(buffer)) != -1) {
+                bos.write(buffer, 0, len);
+            }
             fis.close();
-            return new String(data, "UTF-8");
+            return bos.toString("UTF-8");
         } catch (Exception e) {
+            e.printStackTrace();
             return null;
         }
     }
