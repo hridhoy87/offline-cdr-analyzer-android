@@ -93,7 +93,7 @@
                <div class="profile-row"><span class="profile-label">First Seen:</span> ${profile.first}</div>
                <div class="profile-row"><span class="profile-label">Last Seen:</span> ${profile.last}</div>
                ${imeiHtml}
-               <div class="profile-row"><span class="profile-label">Top Location:</span><br><a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(profile.top_loc)}&travelmode=driving" target="_blank" style="color:#58a6ff; text-decoration: underline;">${profile.top_loc}</a></div>
+               <div class="profile-row"><span class="profile-label">Top Location:</span><br><a href="https://www.google.com/maps/dir/Current+Location/${encodeURIComponent(profile.top_loc)}" target="_blank" style="color:#58a6ff; text-decoration: underline;">${profile.top_loc}</a></div>
             `;
         } else {
             content.innerHTML = `

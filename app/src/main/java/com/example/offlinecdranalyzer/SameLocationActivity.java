@@ -338,7 +338,25 @@ public class SameLocationActivity extends AppCompatActivity {
         row.addView(createCell(obj.optString("B_Party", "N/A")));
         row.addView(createCell(obj.optString("LAC", "N/A")));
         row.addView(createCell(obj.optString("Cell", "N/A")));
-        row.addView(createCell(obj.optString("BTS_Loc", "N/A")));
+        
+        String btsLoc = obj.optString("BTS_Loc", "N/A");
+        TextView btsCell = createCell(btsLoc);
+        if (!"N/A".equals(btsLoc) && !"Unknown".equalsIgnoreCase(btsLoc)) {
+            btsCell.setTextColor(Color.parseColor("#3498DB")); // Highlight as clickable
+            btsCell.setOnClickListener(v -> {
+                Uri gmmIntentUri = Uri.parse("google.navigation:q=" + Uri.encode(btsLoc));
+                Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
+                mapIntent.setPackage("com.google.android.apps.maps");
+                if (mapIntent.resolveActivity(getPackageManager()) != null) {
+                    startActivity(mapIntent);
+                } else {
+                    String browserUri = "https://www.google.com/maps/search/?api=1&query=" + Uri.encode(btsLoc);
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(browserUri)));
+                }
+            });
+        }
+        row.addView(btsCell);
+
         row.addView(createCell(obj.optString("Reason", "N/A")));
         return row;
     }

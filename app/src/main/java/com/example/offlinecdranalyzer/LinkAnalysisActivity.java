@@ -8,6 +8,9 @@ import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Paint;
 import android.graphics.pdf.PdfDocument;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -120,6 +123,11 @@ public class LinkAnalysisActivity extends AppCompatActivity {
             populateAreaHistogram(graphData);
             populateImeiMapping(graphData);
         }
+
+        // Request location permission for better mapping experience
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            androidx.core.app.ActivityCompat.requestPermissions(this, new String[]{android.Manifest.permission.ACCESS_FINE_LOCATION}, 1001);
+        }
     }
 
     private void setupWebView(WebView webView, String graphData, boolean isPrimary) {
@@ -128,9 +136,46 @@ public class LinkAnalysisActivity extends AppCompatActivity {
         webSettings.setAllowFileAccess(true);
         webSettings.setAllowContentAccess(true);
         webSettings.setDomStorageEnabled(true);
+        webSettings.setGeolocationEnabled(true); // Enable geolocation for the map web view
+        webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
         webView.setBackgroundColor(Color.TRANSPARENT);
 
+        // Required for geolocation in WebView
+        webView.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, android.webkit.GeolocationPermissions.Callback callback) {
+                callback.invoke(origin, true, false);
+            }
+        });
+
         webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, android.webkit.WebResourceRequest request) {
+                String url = request.getUrl().toString();
+                if (url.contains("google.com/maps")) {
+                    updateCurrentLocation();
+                    
+                    // If the URL is in the format we used in HTML, we can improve it with real coordinates if available
+                    if (url.contains("/Current+Location/")) {
+                        url = url.replace("/Current+Location/", "/" + lastKnownLocation + "/");
+                    }
+
+                    // Directly launch Google Maps app instead of WebView
+                    Uri gmmIntentUri = Uri.parse(url);
+                    Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
+                    mapIntent.setPackage("com.google.android.apps.maps");
+                    
+                    if (mapIntent.resolveActivity(getPackageManager()) != null) {
+                        startActivity(mapIntent);
+                    } else {
+                        // Fallback: Open in any available browser
+                        startActivity(new Intent(Intent.ACTION_VIEW, gmmIntentUri));
+                    }
+                    return true;
+                }
+                return false;
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 if (graphData != null) {
@@ -476,16 +521,39 @@ public class LinkAnalysisActivity extends AppCompatActivity {
         }
     }
 
+    private String lastKnownLocation = "Current+Location";
+
+    private void updateCurrentLocation() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            if (locationManager != null) {
+                Location loc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+                if (loc == null) loc = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+                if (loc != null) {
+                    lastKnownLocation = loc.getLatitude() + "," + loc.getLongitude();
+                }
+            }
+        }
+    }
+
     private void openGoogleMaps(String address) {
         if (address == null || address.isEmpty() || address.equalsIgnoreCase("Unknown")) return;
-        String uri = "https://www.google.com/maps/dir/?api=1&destination=" + Uri.encode(address) + "&travelmode=driving";
-        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(uri));
-        intent.setPackage("com.google.android.apps.maps");
-        if (intent.resolveActivity(getPackageManager()) != null) {
-            startActivity(intent);
+
+        updateCurrentLocation();
+        String encodedAddress = Uri.encode(address);
+        
+        // Use Google Maps Intent URI for navigation
+        String uri = "google.navigation:q=" + encodedAddress;
+        Uri gmmIntentUri = Uri.parse(uri);
+        Intent mapIntent = new Intent(Intent.ACTION_VIEW, gmmIntentUri);
+        mapIntent.setPackage("com.google.android.apps.maps");
+
+        if (mapIntent.resolveActivity(getPackageManager()) != null) {
+            startActivity(mapIntent);
         } else {
-            // Fallback to browser
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(uri)));
+            // Fallback to Browser URL if Google Maps app is not installed
+            String browserUri = "https://www.google.com/maps/dir/" + lastKnownLocation + "/" + encodedAddress;
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(browserUri)));
         }
     }
 
