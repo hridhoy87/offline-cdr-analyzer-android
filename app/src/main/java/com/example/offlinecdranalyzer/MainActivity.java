@@ -154,6 +154,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (isFinishing()) {
+            // Instruction f: Erase shared preference when app is closed fully
+            getSharedPreferences("LocationTrailPrefs", MODE_PRIVATE).edit().clear().apply();
+        }
+    }
+
+    @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         
@@ -175,7 +184,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         loadAliasesFromJson();
-        cleanCache();
+        if (savedInstanceState == null) {
+            cleanCache();
+        }
         ensureReportDirectory();
         showWelcomeDialog();
 

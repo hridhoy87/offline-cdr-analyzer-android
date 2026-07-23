@@ -173,6 +173,16 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         # 8. Graph & Report Data (Cached for PDF/UI)
         ap_to_imeis = raw_imei_clean.groupby(col_C)[col_J].unique().apply(list).to_dict()
         
+        # Check for Lat/Long columns
+        has_lat_long = False
+        for c in combined_df.columns:
+            low_c = str(c).lower()
+            if 'lat' in low_c or 'lon' in low_c or 'lng' in low_c:
+                has_lat_long = True
+                break
+        if not has_lat_long and len(combined_df.columns) > 13:
+            has_lat_long = True
+
         a_areas = combined_df.groupby(col_C)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
         b_areas = combined_df.groupby(col_D)[col_L].agg(lambda x: x.value_counts().index[0] if not x.empty else "Unknown").to_dict()
         
@@ -346,6 +356,91 @@ def search_cdr_data(file_paths, search_query):
             else: dialog_lines.append(f"<font color='#E53E3E'><b>Term: {term}</b></font><br/>&nbsp;&nbsp;Status: <i>Not Found</i>")
         return {"status": "success", "summary_html": "<br/><br/>".join(dialog_lines)}
     except Exception as e: return {"status": "error", "message": str(e)}
+
+def bring_loc_trail_out(file_paths, start_ts, end_ts, context):
+    try:
+        if not file_paths: return False
+        all_dfs = []
+        for path in file_paths:
+            if not os.path.exists(path): continue
+            try:
+                if path.lower().endswith('.pdf'):
+                    df = pdf_converter.pdf_to_dataframe(path)
+                else:
+                    df = pd.read_excel(path, engine="openpyxl", dtype=str)
+                if not df.empty: all_dfs.append(df)
+            except: continue
+        
+        if not all_dfs: return False
+        
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        col_time = combined_df.columns[0]
+        col_aparty = combined_df.columns[2]
+        
+        # Determine Lat/Long columns
+        lat_col = None
+        lon_col = None
+        for c in combined_df.columns:
+            low_c = str(c).lower()
+            if 'lat' in low_c: lat_col = c
+            if 'lon' in low_c or 'lng' in low_c: lon_col = c
+            
+        if not lat_col or not lon_col:
+            if len(combined_df.columns) > 13:
+                lat_col = combined_df.columns[12]
+                lon_col = combined_df.columns[13]
+            else:
+                return False
+
+        combined_df[col_time] = pd.to_datetime(combined_df[col_time], errors='coerce')
+        if start_ts and end_ts:
+            combined_df = combined_df[(combined_df[col_time] >= pd.to_datetime(start_ts)) & (combined_df[col_time] <= pd.to_datetime(end_ts))]
+        
+        combined_df = combined_df.dropna(subset=[col_time, lat_col, lon_col])
+        combined_df = combined_df.sort_values(by=col_time)
+        
+        result = {}
+        alias_map = load_aliases()
+        
+        for aparty, group in combined_df.groupby(col_aparty):
+            points = []
+            unique_locs = {}
+            saparty = format_with_alias(aparty, alias_map)
+            
+            for _, row in group.iterrows():
+                try:
+                    lat = float(row[lat_col])
+                    lng = float(row[lon_col])
+                    # Format: 15 Oct 23, 14:30
+                    time_str = row[col_time].strftime('%d %b %y, %H:%M')
+                    
+                    points.append({"lat": lat, "lng": lng, "time": time_str})
+                    
+                    loc_key = (round(lat, 6), round(lng, 6))
+                    if loc_key not in unique_locs:
+                        unique_locs[loc_key] = {"lat": lat, "lng": lng, "freq": 0, "times": []}
+                    unique_locs[loc_key]["freq"] += 1
+                    unique_locs[loc_key]["times"].append(time_str)
+                except: continue
+                
+            if points:
+                result[saparty] = {
+                    "trail": points,
+                    "markers": [v for v in unique_locs.values()]
+                }
+        
+        json_str = json.dumps(result, ensure_ascii=False)
+        
+        # Save to Shared Preferences using Android Context
+        prefs = context.getSharedPreferences("LocationTrailPrefs", 0)
+        editor = prefs.edit()
+        editor.putString("trail_data", json_str)
+        editor.apply()
+        
+        return True
+    except Exception as e:
+        print(f"Error in bring_loc_trail_out: {e}")
+        return False
 
 def export_same_location_to_excel(json_data, output_path):
     try:

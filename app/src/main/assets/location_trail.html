@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Location Trail</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #f0f0f0; }
+        #map { height: 100vh; width: 100vw; }
+        .leaflet-popup-content-wrapper { border-radius: 8px; font-family: sans-serif; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        var map = L.map('map', { zoomControl: false }).setView([23.8103, 90.4125], 7);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        L.control.zoom({ position: 'bottomleft' }).addTo(map);
+
+        var trailLayers = L.layerGroup().addTo(map);
+        var colors = ['#E74C3C', '#2ECC71', '#3498DB', '#F1C40F', '#9B59B6', '#1ABC9C', '#E67E22', '#34495E'];
+
+        function renderTrailData(jsonString) {
+            trailLayers.clearLayers();
+            var data = JSON.parse(jsonString);
+            var colorIdx = 0;
+            var allPoints = [];
+
+            for (var aparty in data) {
+                var color = colors[colorIdx % colors.length];
+                colorIdx++;
+
+                var group = data[aparty];
+                var trailPoints = group.trail.map(p => [p.lat, p.lng]);
+                allPoints = allPoints.concat(trailPoints);
+
+                // Draw Polyline for the trail
+                L.polyline(trailPoints, {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.6,
+                    dashArray: '5, 10'
+                }).addTo(trailLayers);
+
+                // Add Markers for each unique location
+                group.markers.forEach(m => {
+                    var lastTime = m.times[m.times.length - 1];
+                    var googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${m.lat},${m.lng}`;
+
+                    var popupContent = `
+                        <div style="line-height: 1.6;">
+                            <b style="color: ${color}; font-size: 13px;">👤 A Party: ${aparty}</b><br/>
+                            <b>🕒 Time:</b> ${lastTime}<br/>
+                            <b>📍 Lat Long:</b> <a href="${googleMapsUrl}" target="_blank" style="color: #3498DB; text-decoration: underline;">${m.lat.toFixed(5)}, ${m.lng.toFixed(5)}</a><br/>
+                            <b>🔢 Frequency:</b> ${m.freq} Hits
+                        </div>
+                    `;
+
+                    L.circleMarker([m.lat, m.lng], {
+                        radius: 6 + Math.min(m.freq, 12),
+                        fillColor: color,
+                        color: "#FFFFFF",
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.9
+                    }).bindPopup(popupContent).addTo(trailLayers);
+                });
+            }
+
+            if (allPoints.length > 0) {
+                map.fitBounds(allPoints, { padding: [50, 50] });
+            }
+        }
+    </script>
+</body>
+</html>

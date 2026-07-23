@@ -76,4 +76,6 @@
     <string name="logo_python">Python</string>
     <string name="logo_html">HTML</string>
     <string name="logo_js">JavaScript</string>
+    <string name="action_location_trail">📍 Location Trail</string>
+    <string name="no_lat_long_alert">🗺️ No lat long detected for plotting. (Swipe to dismiss)</string>
 </resources>
