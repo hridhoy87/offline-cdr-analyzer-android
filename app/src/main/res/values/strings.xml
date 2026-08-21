@@ -24,8 +24,8 @@
     <string name="summary_a_parties">🎯 <b>A Parties:</b><br/>%s</string>
     <string name="summary_top_b_parties">🔥 <b>Top Bps:</b><br/>%s</string>
     <string name="share_top_b_parties_title">Top B parties</string>
-    <string name="summary_night_stays_title">🌙 <b>Top 5 Night Stays (of Bp):</b><br/></string>
-    <string name="summary_night_stays_plain_title">Top 5 Night Stays:\n</string>
+    <string name="summary_night_stays_title">🌙 <b>Top 5 Night Stays (of Ap):</b><br/></string>
+    <string name="summary_night_stays_plain_title">Top 5 Night Stays (of Ap):\n</string>
     <string name="summary_common_b_parties">🔗 <b>Common Bps:</b><br/>%s</string>
     <string name="share_common_b_parties_title">Common B Parties</string>
     <string name="share_summary_title">Intelligence Summary</string>
@@ -76,6 +76,4 @@
     <string name="logo_python">Python</string>
     <string name="logo_html">HTML</string>
     <string name="logo_js">JavaScript</string>
-    <string name="action_location_trail">📍 Location Trail</string>
-    <string name="no_lat_long_alert">🗺️ No lat long detected for plotting. (Swipe to dismiss)</string>
 </resources>

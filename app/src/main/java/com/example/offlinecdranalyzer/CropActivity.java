@@ -234,8 +234,10 @@ public class CropActivity extends AppCompatActivity {
                 extension = ".pdf";
             }
             
-            File tempFile = new File(getCacheDir(), "temp_cdr_crop_" + System.currentTimeMillis() + extension);
+            String uniqueId = java.util.UUID.randomUUID().toString().substring(0, 8);
+            File tempFile = new File(getCacheDir(), "temp_cdr_crop_" + System.currentTimeMillis() + "_" + uniqueId + extension);
             InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return null;
             FileOutputStream fos = new FileOutputStream(tempFile);
             byte[] buffer = new byte[8192]; int len;
             while ((len = is.read(buffer)) > 0) fos.write(buffer, 0, len);

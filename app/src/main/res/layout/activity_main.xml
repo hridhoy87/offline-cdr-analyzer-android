@@ -315,10 +315,18 @@
                         android:id="@+id/summaryNightStays"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="🌙 Night Stays: ..."
+                        android:text="🌙 Top 5 Night Stays (of Ap):"
                         android:textColor="?attr/primaryTextColor"
-                        android:layout_marginBottom="8dp"
+                        android:textStyle="bold"
+                        android:layout_marginBottom="4dp"
                         android:textSize="14sp"/>
+
+                    <LinearLayout
+                        android:id="@+id/nightStaysContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="8dp" />
 
                     <TextView
                         android:id="@+id/summaryCommonBParties"

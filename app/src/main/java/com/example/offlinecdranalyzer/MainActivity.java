@@ -26,6 +26,8 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.view.Gravity;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -95,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
     private android.widget.ScrollView mainScrollView;
     private View resultsContainer;
     private TextView summaryAParties, summaryTopThree, summaryNightStays, summaryCommonBParties;
+    private LinearLayout nightStaysContainer;
     private View summaryCardContent;
     private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
     private LinearLayout heatmapContainer;
@@ -115,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
     
     private Calendar filterStartCal = null;
     private Calendar filterEndCal = null;
-    private java.util.HashMap<String, String> aliasMap = new java.util.HashMap<>();
+    private WebView printWebView = null;
 
     private Thread backgroundAnalysisThread = null;
     private boolean isAnalysisReady = false;
@@ -156,10 +159,6 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (isFinishing()) {
-            // Instruction f: Erase shared preference when app is closed fully
-            getSharedPreferences("LocationTrailPrefs", MODE_PRIVATE).edit().clear().apply();
-        }
     }
 
     @Override
@@ -183,7 +182,6 @@ public class MainActivity extends AppCompatActivity {
             Python.start(new AndroidPlatform(this));
         }
 
-        loadAliasesFromJson();
         if (savedInstanceState == null) {
             cleanCache();
         }
@@ -203,6 +201,7 @@ public class MainActivity extends AppCompatActivity {
         summaryAParties = findViewById(R.id.summaryAParties);
         summaryTopThree = findViewById(R.id.summaryTopThree);
         summaryNightStays = findViewById(R.id.summaryNightStays);
+        nightStaysContainer = findViewById(R.id.nightStaysContainer);
         summaryCommonBParties = findViewById(R.id.summaryCommonBParties);
         summaryCardContent = findViewById(R.id.summaryCardContent);
         badgeImei = findViewById(R.id.badgeImei);
@@ -240,9 +239,6 @@ public class MainActivity extends AppCompatActivity {
             popup.setOnMenuItemClickListener(item -> {
                 if (item.getItemId() == R.id.action_about) {
                     showAboutDialog();
-                    return true;
-                } else if (item.getItemId() == R.id.action_edit_aliases) {
-                    showEditAliasesDialog();
                     return true;
                 } else if (item.getItemId() == R.id.action_update) {
                     showUpdateBanner();
@@ -405,9 +401,6 @@ public class MainActivity extends AppCompatActivity {
         if (item.getItemId() == R.id.action_about) {
             showAboutDialog();
             return true;
-        } else if (item.getItemId() == R.id.action_edit_aliases) {
-            showEditAliasesDialog();
-            return true;
         } else if (item.getItemId() == R.id.action_save_pdf) {
             generatePdfReport();
             return true;
@@ -439,6 +432,8 @@ public class MainActivity extends AppCompatActivity {
         loadingLogo.startAnimation(complexAnim);
         rippleEffect.startAnimation(complexAnim);
 
+        final String locReq = locationInput.getText().toString().trim().isEmpty() ? "All Locations" : locationInput.getText().toString().trim();
+
         new Thread(() -> {
             try {
                 Python py = Python.getInstance();
@@ -469,9 +464,6 @@ public class MainActivity extends AppCompatActivity {
                     cdrNames.add(new File(p).getName());
                 }
 
-                String locReq = locationInput.getText().toString().trim();
-                if (locReq.isEmpty()) locReq = "All Locations";
-                
                 String timeline = "Complete History";
                 if (filterStartCal != null && filterEndCal != null) {
                     SimpleDateFormat sdf = new SimpleDateFormat("dd MMM yy HH:mm", Locale.US);
@@ -484,7 +476,7 @@ public class MainActivity extends AppCompatActivity {
                         summary,
                         lastGraphData, 
                         sameLocJson,
-                        aliasMap,
+                        null,
                         locReq,
                         timeline,
                         cdrNames.toArray(new String[0]),
@@ -513,8 +505,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void printHtmlToPdf(String htmlContent, String jobName) {
-        WebView webView = new WebView(this);
-        webView.setWebViewClient(new WebViewClient() {
+        printWebView = new WebView(this);
+        printWebView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
                 createWebPrintJob(view, jobName);
@@ -522,7 +514,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         // Load HTML with base URL to allow internal resources if needed
-        webView.loadDataWithBaseURL(null, htmlContent, "text/html", "utf-8", null);
+        printWebView.loadDataWithBaseURL(null, htmlContent, "text/html", "utf-8", null);
     }
 
     private void createWebPrintJob(WebView webView, String jobName) {
@@ -536,163 +528,6 @@ public class MainActivity extends AppCompatActivity {
                 .build();
 
         printManager.print(jobName, printAdapter, attributes);
-    }
-
-    private void showEditAliasesDialog() {
-        View dialogView = getLayoutInflater().inflate(R.layout.dialog_edit_aliases, null);
-        EditText editNumber = dialogView.findViewById(R.id.editNumber);
-        EditText editAlias = dialogView.findViewById(R.id.editAlias);
-        Button btnAdd = dialogView.findViewById(R.id.btnAddAlias);
-        LinearLayout containerList = dialogView.findViewById(R.id.containerAliasList);
-
-        // Track editing state
-        final String[] editingNumber = {null};
-
-        updateAliasDisplayList(containerList, editNumber, editAlias, btnAdd, editingNumber);
-
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setView(dialogView)
-                .setPositiveButton("Done", (d, w) -> hideKeyboard(editNumber))
-                .create();
-
-        btnAdd.setOnClickListener(v -> {
-            String num = editNumber.getText().toString().trim();
-            String alias = editAlias.getText().toString().trim();
-
-            if (num.isEmpty() || alias.isEmpty()) {
-                Toast.makeText(this, "Enter valid number and alias", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (editingNumber[0] != null && !editingNumber[0].equals(num)) {
-                aliasMap.remove(editingNumber[0]);
-            }
-
-            aliasMap.put(num, alias);
-            saveAliasesToJson();
-            
-            editingNumber[0] = null;
-            btnAdd.setText("+");
-            editNumber.setText("");
-            editAlias.setText("");
-            hideKeyboard(v);
-            
-            updateAliasDisplayList(containerList, editNumber, editAlias, btnAdd, editingNumber);
-            Toast.makeText(this, "Alias saved", Toast.LENGTH_SHORT).show();
-        });
-
-        dialog.show();
-    }
-
-    private void updateAliasDisplayList(LinearLayout container, EditText editNum, EditText editAl, Button btnAdd, String[] editingNumber) {
-        container.removeAllViews();
-        if (aliasMap.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText("No aliases defined.");
-            empty.setPadding(20, 20, 20, 20);
-            container.addView(empty);
-            return;
-        }
-
-        for (Map.Entry<String, String> entry : aliasMap.entrySet()) {
-            View itemView = getLayoutInflater().inflate(R.layout.item_alias, null);
-            TextView txtName = itemView.findViewById(R.id.txtAliasName);
-            TextView txtNum = itemView.findViewById(R.id.txtAliasNumber);
-            ImageButton btnEdit = itemView.findViewById(R.id.btnEditAlias);
-            ImageButton btnDelete = itemView.findViewById(R.id.btnDeleteAlias);
-
-            String number = entry.getKey();
-            String alias = entry.getValue();
-
-            txtName.setText(alias);
-            txtNum.setText(number);
-
-            btnEdit.setOnClickListener(v -> {
-                editNum.setText(number);
-                editAl.setText(alias);
-                editingNumber[0] = number;
-                btnAdd.setText("Update");
-                editNum.requestFocus();
-            });
-
-            btnDelete.setOnClickListener(v -> {
-                new AlertDialog.Builder(this)
-                        .setTitle("Delete Alias")
-                        .setMessage("Are you sure you want to delete alias for " + number + "?")
-                        .setPositiveButton("Delete", (d, w) -> {
-                            aliasMap.remove(number);
-                            saveAliasesToJson();
-                            updateAliasDisplayList(container, editNum, editAl, btnAdd, editingNumber);
-                        })
-                        .setNegativeButton("Cancel", null)
-                        .show();
-            });
-
-            container.addView(itemView);
-        }
-    }
-
-    private void saveAliasesToJson() {
-        try {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
-            if (!dir.exists()) dir.mkdirs();
-            File file = new File(dir, "aliases_metadata.json");
-            
-            JSONObject json = new JSONObject();
-            for (Map.Entry<String, String> entry : aliasMap.entrySet()) {
-                json.put(entry.getKey(), entry.getValue());
-            }
-            
-            FileOutputStream fos = new FileOutputStream(file);
-            fos.write(json.toString(4).getBytes());
-            fos.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-            Toast.makeText(this, "Error saving aliases: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void loadAliasesFromJson() {
-        try {
-            File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
-            if (!dir.exists()) dir.mkdirs();
-            File file = new File(dir, "aliases_metadata.json");
-
-            String str = null;
-            if (file.exists()) {
-                java.io.FileInputStream fis = new java.io.FileInputStream(file);
-                byte[] data = new byte[(int) file.length()];
-                fis.read(data);
-                fis.close();
-                str = new String(data, "UTF-8");
-            } else {
-                // If it doesn't exist in Documents, try to load the default from assets
-                try {
-                    java.io.InputStream is = getAssets().open("aliases_metadata.json");
-                    int size = is.available();
-                    byte[] buffer = new byte[size];
-                    is.read(buffer);
-                    is.close();
-                    str = new String(buffer, "UTF-8");
-                    // Save it to Documents immediately for future persistence
-                    saveAliasesToJson(); 
-                } catch (Exception assetEx) {
-                    return; // No assets file either
-                }
-            }
-
-            if (str != null) {
-                JSONObject json = new JSONObject(str);
-                aliasMap.clear();
-                Iterator<String> keys = json.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    aliasMap.put(key, json.getString(key));
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     private void showAboutDialog() {
@@ -796,11 +631,12 @@ public class MainActivity extends AppCompatActivity {
         loadingLogo.startAnimation(complexAnim);
         rippleEffect.startAnimation(complexAnim);
 
+        final String location = locationInput.getText().toString();
+
         new Thread(() -> {
             try {
                 Python py = Python.getInstance();
                 PyObject pyModule = py.getModule("index");
-                String location = locationInput.getText().toString();
                 
                 File reportDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports");
                 if (!reportDir.exists()) {
@@ -899,32 +735,53 @@ public class MainActivity extends AppCompatActivity {
 
             PyObject pyCommonB = metrics.get(py.getBuiltins().get("str").call("common_b_parties"));
             PyObject pyNightStays = metrics.get(py.getBuiltins().get("str").call("night_stays"));
+            PyObject pyNightStaysByAp = metrics.get(py.getBuiltins().get("str").call("night_stays_by_ap"));
             String rawCommonB = (pyCommonB != null) ? pyCommonB.toString() : "None";
             String rawNightStays = (pyNightStays != null) ? pyNightStays.toString() : "Insufficient Data";
 
             summaryAParties.setText(Html.fromHtml(getString(R.string.summary_a_parties, metrics.get(py.getBuiltins().get("str").call("a_parties"))), Html.FROM_HTML_MODE_COMPACT));
             summaryTopThree.setText(Html.fromHtml(getString(R.string.summary_top_b_parties, topBHtml.toString()), Html.FROM_HTML_MODE_COMPACT));
 
-            StringBuilder nightStaysHtml = new StringBuilder(getString(R.string.summary_night_stays_title));
+            StringBuilder nightStaysHtml = new StringBuilder();
             StringBuilder nightStaysPlain = new StringBuilder(getString(R.string.summary_night_stays_plain_title));
-            if (rawNightStays.contains(" | ")) {
-                String[] stays = rawNightStays.split(" \\| ");
-                char listChar = 'a';
-                for (String stay : stays) {
-                    nightStaysHtml.append(listChar).append(". ").append(stay).append("<br>");
-                    nightStaysPlain.append(listChar).append(". ").append(stay).append("\n");
-                    listChar++;
+
+            if (pyNightStaysByAp != null) {
+                Map<PyObject, PyObject> apMap = pyNightStaysByAp.asMap();
+                renderNightStaySegments(apMap);
+
+                for (Map.Entry<PyObject, PyObject> entry : apMap.entrySet()) {
+                    String aParty = entry.getKey().toString();
+                    List<PyObject> locList = entry.getValue().asList();
+                    nightStaysHtml.append("<b>📱 ").append(aParty).append(":</b><br/>");
+                    nightStaysPlain.append("• ").append(aParty).append(":\n");
+                    if (locList.isEmpty()) {
+                        nightStaysHtml.append("&nbsp;&nbsp;<i>No night stay activity</i><br/>");
+                        nightStaysPlain.append("  (No night stay activity)\n");
+                    } else {
+                        char ch = 'a';
+                        for (PyObject locObj : locList) {
+                            String loc = locObj.toString();
+                            nightStaysHtml.append("&nbsp;&nbsp;").append(ch).append(". ").append(loc).append("<br/>");
+                            nightStaysPlain.append("  ").append(ch).append(". ").append(loc).append("\n");
+                            ch++;
+                        }
+                    }
                 }
             } else {
+                nightStaysContainer.removeAllViews();
+                TextView tv = new TextView(this);
+                tv.setText(rawNightStays);
+                tv.setTextSize(13);
+                nightStaysContainer.addView(tv);
                 nightStaysHtml.append(rawNightStays);
                 nightStaysPlain.append(rawNightStays);
             }
-            summaryNightStays.setText(Html.fromHtml(nightStaysHtml.toString(), Html.FROM_HTML_MODE_COMPACT));
+            summaryNightStays.setText(Html.fromHtml(getString(R.string.summary_night_stays_title), Html.FROM_HTML_MODE_COMPACT));
             summaryCommonBParties.setText(Html.fromHtml(getString(R.string.summary_common_b_parties, rawCommonB), Html.FROM_HTML_MODE_COMPACT));
 
             lastSummaryHtml = "<b>A-Parties:</b> " + metrics.get(py.getBuiltins().get("str").call("a_parties")).toString() + "<br/><br/>" +
                               "<b>Top B-Parties:</b><br/>" + topBHtml.toString() + "<br/>" +
-                              "<b>Night Stays:</b><br/>" + nightStaysHtml.toString() + "<br/>" +
+                              "<b>Top 5 Night Stays (of Ap):</b><br/>" + nightStaysHtml.toString() + "<br/>" +
                               "<b>Common Contacts:</b> " + rawCommonB;
 
             summaryCardContent.setOnClickListener(v -> {
@@ -970,6 +827,100 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) {
             statusText.setText(getString(R.string.display_error, e.getMessage()));
             e.printStackTrace();
+        }
+    }
+
+    private void renderNightStaySegments(Map<PyObject, PyObject> apMap) {
+        nightStaysContainer.removeAllViews();
+        if (apMap == null || apMap.isEmpty()) {
+            TextView tv = new TextView(this);
+            tv.setText("No night stay activity recorded.");
+            tv.setTextSize(13);
+            tv.setTextColor(Color.parseColor("#718096"));
+            nightStaysContainer.addView(tv);
+            return;
+        }
+
+        int index = 0;
+        for (Map.Entry<PyObject, PyObject> entry : apMap.entrySet()) {
+            String aParty = entry.getKey().toString();
+            List<PyObject> locList = entry.getValue().asList();
+
+            // 1. Root Segment Container
+            LinearLayout segmentLayout = new LinearLayout(this);
+            segmentLayout.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout.LayoutParams segParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+            segParams.setMargins(0, index == 0 ? 4 : 8, 0, 4);
+            segmentLayout.setLayoutParams(segParams);
+
+            // 2. Header Layout (Clickable Collapsible Row)
+            LinearLayout headerLayout = new LinearLayout(this);
+            headerLayout.setOrientation(LinearLayout.HORIZONTAL);
+            headerLayout.setGravity(Gravity.CENTER_VERTICAL);
+            headerLayout.setPadding(16, 12, 16, 12);
+            headerLayout.setBackgroundResource(R.drawable.ripple_shadow);
+            headerLayout.setClickable(true);
+            headerLayout.setFocusable(true);
+
+            TextView arrowView = new TextView(this);
+            arrowView.setText("▼ ");
+            arrowView.setTextSize(13);
+            arrowView.setTypeface(null, Typeface.BOLD);
+            arrowView.setTextColor(Color.parseColor("#3182CE"));
+
+            TextView titleView = new TextView(this);
+            String countStr = " (" + locList.size() + " locations)";
+            titleView.setText(Html.fromHtml("<b>📱 " + aParty + "</b> <font color='#718096'>" + countStr + "</font>", Html.FROM_HTML_MODE_COMPACT));
+            titleView.setTextSize(13);
+
+            android.util.TypedValue typedValue = new android.util.TypedValue();
+            if (getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true)) {
+                titleView.setTextColor(typedValue.data);
+            }
+
+            headerLayout.addView(arrowView);
+            headerLayout.addView(titleView);
+
+            // 3. Content Layout (List of top 5 night stay locations)
+            LinearLayout contentLayout = new LinearLayout(this);
+            contentLayout.setOrientation(LinearLayout.VERTICAL);
+            contentLayout.setPadding(36, 6, 16, 6);
+
+            if (locList.isEmpty()) {
+                TextView noDataView = new TextView(this);
+                noDataView.setText("No night stay activity recorded.");
+                noDataView.setTextSize(12.5f);
+                noDataView.setTextColor(Color.parseColor("#718096"));
+                noDataView.setTypeface(null, Typeface.ITALIC);
+                contentLayout.addView(noDataView);
+            } else {
+                char letter = 'a';
+                for (PyObject locObj : locList) {
+                    String loc = locObj.toString();
+                    TextView locView = new TextView(this);
+                    locView.setText(letter + ". " + loc);
+                    locView.setTextSize(12.5f);
+                    locView.setPadding(0, 2, 0, 4);
+                    if (getTheme().resolveAttribute(R.attr.primaryTextColor, typedValue, true)) {
+                        locView.setTextColor(typedValue.data);
+                    }
+                    contentLayout.addView(locView);
+                    letter++;
+                }
+            }
+
+            // Click listener on Header to expand/collapse
+            headerLayout.setOnClickListener(v -> {
+                boolean isVisible = (contentLayout.getVisibility() == View.VISIBLE);
+                contentLayout.setVisibility(isVisible ? View.GONE : View.VISIBLE);
+                arrowView.setText(isVisible ? "▶ " : "▼ ");
+            });
+
+            segmentLayout.addView(headerLayout);
+            segmentLayout.addView(contentLayout);
+            nightStaysContainer.addView(segmentLayout);
+            index++;
         }
     }
 
@@ -1271,17 +1222,16 @@ public class MainActivity extends AppCompatActivity {
 
                     final int start = i;
                     final int end = Math.min(i + chunkSize, totalRows);
-                    final List<TableRow> batch = new ArrayList<>();
+                    final List<String[]> batchData = new ArrayList<>();
 
                     for (int j = start; j < end; j++) {
                         JSONObject rowData = array.getJSONObject(j);
-                        TableRow tableRow = new TableRow(MainActivity.this);
-                        tableRow.setBackgroundColor(j % 2 == 0 ? Color.WHITE : Color.parseColor("#F5F5F5"));
-                        tableRow.addView(createTableCell(rowData.optString("dt")));
-                        tableRow.addView(createTableCell(rowData.optString("ap")));
-                        tableRow.addView(createTableCell(rowData.optString("bp")));
-                        tableRow.addView(createTableCell(rowData.optString("freq")));
-                        batch.add(tableRow);
+                        batchData.add(new String[]{
+                            rowData.optString("dt"),
+                            rowData.optString("ap"),
+                            rowData.optString("bp"),
+                            rowData.optString("freq")
+                        });
                     }
 
                     handler.post(() -> {
@@ -1289,7 +1239,17 @@ public class MainActivity extends AppCompatActivity {
                             peekLoading.setVisibility(View.GONE);
                             peekScroll.setVisibility(View.VISIBLE);
                         }
-                        for (TableRow row : batch) tableLayout.addView(row);
+                        for (int k = 0; k < batchData.size(); k++) {
+                            int rowIndex = start + k;
+                            String[] row = batchData.get(k);
+                            TableRow tableRow = new TableRow(MainActivity.this);
+                            tableRow.setBackgroundColor(rowIndex % 2 == 0 ? Color.WHITE : Color.parseColor("#F5F5F5"));
+                            tableRow.addView(createTableCell(row[0]));
+                            tableRow.addView(createTableCell(row[1]));
+                            tableRow.addView(createTableCell(row[2]));
+                            tableRow.addView(createTableCell(row[3]));
+                            tableLayout.addView(tableRow);
+                        }
                     });
 
                     // Yield slightly to keep system smooth
@@ -1469,7 +1429,8 @@ public class MainActivity extends AppCompatActivity {
                 extension = ".pdf";
             }
             
-            File tempFile = new File(getCacheDir(), "temp_cdr_" + System.currentTimeMillis() + extension);
+            String uniqueId = java.util.UUID.randomUUID().toString().substring(0, 8);
+            File tempFile = new File(getCacheDir(), "temp_cdr_" + System.currentTimeMillis() + "_" + uniqueId + extension);
             InputStream inputStream = getContentResolver().openInputStream(uri);
             if (inputStream == null) return null;
             FileOutputStream outputStream = new FileOutputStream(tempFile);

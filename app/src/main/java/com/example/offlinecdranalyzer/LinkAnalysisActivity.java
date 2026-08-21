@@ -18,6 +18,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.Html;
 import android.util.Base64;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -213,7 +214,25 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                 }
             }
         });
+        setupWebViewTouchHandling(webView);
         webView.loadUrl("file:///android_asset/link_analysis.html");
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private void setupWebViewTouchHandling(WebView webView) {
+        webView.setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                case MotionEvent.ACTION_MOVE:
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    break;
+            }
+            return false;
+        });
     }
 
     private void populateImeiMapping(String jsonString) {
@@ -300,10 +319,11 @@ public class LinkAnalysisActivity extends AppCompatActivity {
 
     private void exportToPdf(WebView webView) {
         PdfDocument document = new PdfDocument();
-        PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(595, 842, 1).create();
-        final PdfDocument.Page[] page = {document.startPage(pageInfo)};
+        final int[] pageNumber = {1};
+        PdfDocument.PageInfo initialPageInfo = new PdfDocument.PageInfo.Builder(595, 842, pageNumber[0]).create();
+        final PdfDocument.Page[] page = {document.startPage(initialPageInfo)};
         final Canvas[] canvas = {page[0].getCanvas()};
-        final float[] y = {50};
+        final float[] y = {40};
 
         Paint paint = new Paint();
         paint.setColor(Color.BLACK);
@@ -318,18 +338,17 @@ public class LinkAnalysisActivity extends AppCompatActivity {
         paint.setTextSize(10);
         String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
         canvas[0].drawText("Generated on: " + date, 50, y[0], paint);
-        y[0] += 30;
+        y[0] += 25;
 
         try {
             if (rawGraphData != null) {
                 JSONObject json = new JSONObject(rawGraphData);
-                JSONObject aliasMap = json.optJSONObject("alias_map");
                 
                 // 1. Summary of Common B-Parties
                 paint.setTextSize(14);
                 paint.setFakeBoldText(true);
                 canvas[0].drawText("Summary of Common B-Parties (Correlation):", 50, y[0], paint);
-                y[0] += 25;
+                y[0] += 22;
 
                 paint.setFakeBoldText(false);
                 paint.setTextSize(11);
@@ -339,13 +358,11 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                     for (int i = 0; i < common.length(); i++) {
                         JSONObject link = common.getJSONObject(i);
                         String target = link.optString("target", "Unknown");
-                        String targetAlias = (aliasMap != null) ? aliasMap.optString(target, "") : "";
-                        String targetDisplay = target + (targetAlias.isEmpty() ? "" : "(📌 " + targetAlias + ")");
                         
                         JSONArray sources = link.optJSONArray("source");
                         
                         paint.setFakeBoldText(true);
-                        canvas[0].drawText((i + 1) + ". " + targetDisplay + " was found common between:", 60, y[0], paint);
+                        canvas[0].drawText((i + 1) + ". " + target + " was found common between:", 60, y[0], paint);
                         y[0] += 15;
                         
                         paint.setFakeBoldText(false);
@@ -353,39 +370,42 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                         if (sources != null) {
                             for (int k = 0; k < sources.length(); k++) {
                                 String source = sources.optString(k);
-                                String sourceAlias = (aliasMap != null) ? aliasMap.optString(source, "") : "";
-                                sb.append(source).append(sourceAlias.isEmpty() ? "" : "(📌 " + sourceAlias + ")");
+                                sb.append(source);
                                 if (k < sources.length() - 1) sb.append(", ");
                             }
                         }
                         canvas[0].drawText(sb.toString(), 75, y[0], paint);
-                        y[0] += 30;
+                        y[0] += 25;
 
-                        if (y[0] > 780) {
+                        if (y[0] > 790) {
                             document.finishPage(page[0]);
-                            page[0] = document.startPage(pageInfo);
+                            pageNumber[0]++;
+                            PdfDocument.PageInfo nextInfo = new PdfDocument.PageInfo.Builder(595, 842, pageNumber[0]).create();
+                            page[0] = document.startPage(nextInfo);
                             canvas[0] = page[0].getCanvas();
-                            y[0] = 50;
+                            y[0] = 40;
                         }
                     }
                 } else {
                     canvas[0].drawText("No common contacts identified across different A-Parties.", 60, y[0], paint);
-                    y[0] += 30;
+                    y[0] += 25;
                 }
 
                 // 2. Summary of Hardware Correlation (SIM to IMEI)
-                y[0] += 20;
-                if (y[0] > 700) {
+                y[0] += 15;
+                if (y[0] > 720) {
                     document.finishPage(page[0]);
-                    page[0] = document.startPage(pageInfo);
+                    pageNumber[0]++;
+                    PdfDocument.PageInfo nextInfo = new PdfDocument.PageInfo.Builder(595, 842, pageNumber[0]).create();
+                    page[0] = document.startPage(nextInfo);
                     canvas[0] = page[0].getCanvas();
-                    y[0] = 50;
+                    y[0] = 40;
                 }
                 
                 paint.setTextSize(14);
                 paint.setFakeBoldText(true);
                 canvas[0].drawText("Summary of Hardware Correlation (SIM to IMEI):", 50, y[0], paint);
-                y[0] += 25;
+                y[0] += 22;
 
                 // Draw Table Headers helper
                 drawHardwareTableHeader(canvas[0], paint, y[0]);
@@ -400,18 +420,17 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                     int serial = 1;
                     while (simKeys.hasNext()) {
                         String sim = simKeys.next();
-                        String simAlias = (aliasMap != null) ? aliasMap.optString(sim, "") : "";
-                        String simDisplay = sim + (simAlias.isEmpty() ? "" : "(📌 " + simAlias + ")");
                         
                         JSONArray imeis = simImeiMap.getJSONArray(sim);
                         
                         for (int k = 0; k < imeis.length(); k++) {
-                            // ... (page break logic preserved)
-                            if (y[0] > 780) {
+                            if (y[0] > 790) {
                                 document.finishPage(page[0]);
-                                page[0] = document.startPage(pageInfo);
+                                pageNumber[0]++;
+                                PdfDocument.PageInfo nextInfo = new PdfDocument.PageInfo.Builder(595, 842, pageNumber[0]).create();
+                                page[0] = document.startPage(nextInfo);
                                 canvas[0] = page[0].getCanvas();
-                                y[0] = 50;
+                                y[0] = 40;
                                 drawHardwareTableHeader(canvas[0], paint, y[0]);
                                 y[0] += 20;
                                 paint.setFakeBoldText(false);
@@ -421,17 +440,15 @@ public class LinkAnalysisActivity extends AppCompatActivity {
                             JSONObject imeiObj = imeis.getJSONObject(k);
                             String imei = imeiObj.optString("imei", "Unknown");
                             String hw = imeiObj.optString("hw", "Generic Handset");
-                            String imeiAlias = imeiObj.optString("alias", "");
-                            String imeiDisplay = imei + (imeiAlias.isEmpty() ? "" : "(📌 " + imeiAlias + ")");
 
                             if (k == 0) {
                                 paint.setFakeBoldText(true);
                                 canvas[0].drawText(String.valueOf(serial), 50, y[0], paint);
-                                canvas[0].drawText(simDisplay, 100, y[0], paint);
+                                canvas[0].drawText(sim, 100, y[0], paint);
                                 paint.setFakeBoldText(false);
                             }
                             
-                            canvas[0].drawText(imeiDisplay, 230, y[0], paint);
+                            canvas[0].drawText(imei, 230, y[0], paint);
                             String brandDisplay = hw.length() > 30 ? hw.substring(0, 27) + "..." : hw;
                             canvas[0].drawText(brandDisplay, 400, y[0], paint);
                             

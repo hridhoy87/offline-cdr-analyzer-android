@@ -47,6 +47,7 @@ public class SameLocationActivity extends AppCompatActivity {
 
     private TableLayout locTable;
     private String rawJson;
+    private String originalRawJson;
     private View loadingOverlay;
     private ImageView loadingLogo;
     private Animation complexAnim;
@@ -144,21 +145,16 @@ public class SameLocationActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-                Python py = Python.getInstance();
-                PyObject pyModule = py.getModule("index");
-                
-                String startTs = null, endTs = null;
-                SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
-                if (filterStart != null) startTs = sdf.format(filterStart.getTime());
-                if (filterEnd != null) endTs = sdf.format(filterEnd.getTime());
+                String sourceJson = (originalRawJson != null) ? originalRawJson : rawJson;
+                if (sourceJson == null) {
+                    runOnUiThread(() -> {
+                        loadingOverlay.setVisibility(View.GONE);
+                        loadingLogo.clearAnimation();
+                    });
+                    return;
+                }
 
-                // Note: We need a slight modification to our same_location_analysis in python 
-                // to support start/end TS. For now we will filter the existing rawJson or 
-                // re-run engine if required.
-                
-                // Let's filter the existing rawJson in memory for instant refinement 
-                // unless we want a full re-process. Filtering is faster.
-                JSONArray original = new JSONArray(rawJson);
+                JSONArray original = new JSONArray(sourceJson);
                 JSONArray filtered = new JSONArray();
                 
                 SimpleDateFormat parseSdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
@@ -169,7 +165,7 @@ public class SameLocationActivity extends AppCompatActivity {
                     try {
                         Date date = parseSdf.parse(timeStr);
                         if (date == null) {
-                            filtered.put(obj); // Keep if unparseable? Or skip?
+                            filtered.put(obj);
                             continue;
                         }
                         long ts = date.getTime();
@@ -178,7 +174,6 @@ public class SameLocationActivity extends AppCompatActivity {
                         if (filterEnd != null && ts > filterEnd.getTimeInMillis()) match = false;
                         if (match) filtered.put(obj);
                     } catch (Exception e) { 
-                        // If no filter is set, keep everything. If filter is set, skip errors.
                         if (filterStart == null && filterEnd == null) filtered.put(obj);
                     }
                 }
@@ -192,6 +187,7 @@ public class SameLocationActivity extends AppCompatActivity {
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(View.GONE);
+                    loadingLogo.clearAnimation();
                     Toast.makeText(this, "Refinement error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
             }
@@ -203,6 +199,7 @@ public class SameLocationActivity extends AppCompatActivity {
             int total = array.length();
             if (total == 0) {
                 loadingOverlay.setVisibility(View.GONE);
+                loadingLogo.clearAnimation();
                 Toast.makeText(this, "No overlaps in this range", Toast.LENGTH_SHORT).show();
                 return;
             }
@@ -214,6 +211,7 @@ public class SameLocationActivity extends AppCompatActivity {
             loadingLogo.clearAnimation();
         } catch (Exception e) {
             loadingOverlay.setVisibility(View.GONE);
+            loadingLogo.clearAnimation();
         }
     }
 
@@ -225,11 +223,12 @@ public class SameLocationActivity extends AppCompatActivity {
             if (content == null) {
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(View.GONE);
-        loadingLogo.clearAnimation();
+                    loadingLogo.clearAnimation();
                     Toast.makeText(this, "Failed to read results file", Toast.LENGTH_SHORT).show();
                 });
                 return;
             }
+            originalRawJson = content;
             rawJson = content;
             try {
                 JSONArray array = new JSONArray(rawJson);
@@ -239,18 +238,20 @@ public class SameLocationActivity extends AppCompatActivity {
                 for (int i = 0; i < total; i += chunkSize) {
                     final int currentStart = i;
                     final int currentEnd = Math.min(i + chunkSize, total);
-                    final List<TableRow> batchRows = new ArrayList<>();
+                    final List<JSONObject> batchData = new ArrayList<>();
                     
                     for (int j = currentStart; j < currentEnd; j++) {
-                        JSONObject obj = array.getJSONObject(j);
-                        batchRows.add(createRowFromData(obj, j));
+                        batchData.add(array.getJSONObject(j));
                     }
                     
                     runOnUiThread(() -> {
-                        for (TableRow row : batchRows) locTable.addView(row);
+                        for (int k = 0; k < batchData.size(); k++) {
+                            int rowIndex = currentStart + k;
+                            locTable.addView(createRowFromData(batchData.get(k), rowIndex));
+                        }
                         if (currentEnd == total) {
                             loadingOverlay.setVisibility(View.GONE);
-        loadingLogo.clearAnimation();
+                            loadingLogo.clearAnimation();
                         }
                     });
                     
@@ -380,7 +381,8 @@ public class SameLocationActivity extends AppCompatActivity {
     private void exportToPdf() {
         if (rawJson == null) return;
         PdfDocument pdfDocument = new PdfDocument();
-        PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(842, 595, 1).create();
+        int pageNum = 1;
+        PdfDocument.PageInfo pageInfo = new PdfDocument.PageInfo.Builder(842, 595, pageNum++).create();
         PdfDocument.Page page = pdfDocument.startPage(pageInfo);
         Canvas canvas = page.getCanvas();
         Paint paint = new Paint();
@@ -389,7 +391,7 @@ public class SameLocationActivity extends AppCompatActivity {
         
         paint.setTextSize(10f);
         paint.setFakeBoldText(false);
-        float y = 100;
+        float y = 85;
         float btsX = 460;
         float btsWidth = 350;
         
@@ -403,12 +405,13 @@ public class SameLocationActivity extends AppCompatActivity {
                 
                 float rowHeight = Math.max(15, btsLines.size() * 12);
                 
-                if (y + rowHeight > 550) {
+                if (y + rowHeight > 560) {
                     pdfDocument.finishPage(page);
-                    page = pdfDocument.startPage(pageInfo);
+                    PdfDocument.PageInfo nextPageInfo = new PdfDocument.PageInfo.Builder(842, 595, pageNum++).create();
+                    page = pdfDocument.startPage(nextPageInfo);
                     canvas = page.getCanvas();
                     drawHeader(canvas, paint);
-                    y = 100;
+                    y = 85;
                 }
 
                 canvas.drawText(obj.optString("Time", "N/A"), 40, y, paint);
@@ -508,11 +511,11 @@ public class SameLocationActivity extends AppCompatActivity {
     private void drawHeader(Canvas canvas, Paint paint) {
         paint.setTextSize(14f);
         paint.setFakeBoldText(true);
-        canvas.drawText("Same Location Analysis Report", 40, 40, paint);
+        canvas.drawText("Same Location Analysis Report", 40, 35, paint);
         
         paint.setTextSize(10f);
         paint.setFakeBoldText(true);
-        float y = 80;
+        float y = 65;
         canvas.drawText("Time", 40, y, paint);
         canvas.drawText("A Party", 140, y, paint);
         canvas.drawText("B Party", 240, y, paint);
