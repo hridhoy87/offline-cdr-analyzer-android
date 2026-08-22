@@ -320,7 +320,7 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         return {"status": "error", "message": f"Engine Failure: {str(e)}"}
 
 def same_location_analysis(file_paths, output_dir, start_ts=None, end_ts=None, progress_callback=None):
-    """Identifies movement overlaps and caches deduplicated results to disk."""
+    """Identifies movement overlaps and co-located A-parties at cellular towers / BTS addresses."""
     try:
         all_data = []
         for p in file_paths:
@@ -335,12 +335,10 @@ def same_location_analysis(file_paths, output_dir, start_ts=None, end_ts=None, p
                 if not df.empty and len(df.columns) >= 12:
                     t = pd.DataFrame()
                     t['R'] = pd.to_datetime(df[df.columns[0]], errors='coerce')
-                    t['S'] = t['R'].dt.strftime('%Y-%m-%d %H:%M:%S')
                     t['A'] = df[df.columns[2]].astype(str).str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
-                    t['B'] = df[df.columns[3]].astype(str).str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
-                    t['L'] = df[df.columns[7]].astype(str).str.replace(r'\..*', '', regex=True)
-                    t['C'] = df[df.columns[8]].astype(str).str.replace(r'\..*', '', regex=True)
-                    t['Loc'] = df[df.columns[11]].fillna('--Empty--').astype(str).str.strip()
+                    t['L'] = df[df.columns[7]].astype(str).str.replace(r'\..*', '', regex=True).str.strip().replace(['nan', 'None', 'NaN', ''], '--')
+                    t['C'] = df[df.columns[8]].astype(str).str.replace(r'\..*', '', regex=True).str.strip().replace(['nan', 'None', 'NaN', ''], '--')
+                    t['Loc'] = df[df.columns[11]].fillna('--Empty--').astype(str).str.strip().replace(['nan', 'None', 'NaN', ''], '--Empty--')
                     all_data.append(t[t['A'].str.len() == 11])
             except Exception:
                 continue
@@ -354,7 +352,6 @@ def same_location_analysis(file_paths, output_dir, start_ts=None, end_ts=None, p
             combined = combined[(combined['R'] >= pd.to_datetime(start_ts)) & (combined['R'] <= pd.to_datetime(end_ts))]
 
         raw_results = []
-        seen_keys = set()
         unique_days = sorted(combined['R'].dt.date.unique())
         if not unique_days:
             return {"status": "success", "data": "[]", "summary": "No data in timeline."}
@@ -365,49 +362,80 @@ def same_location_analysis(file_paths, output_dir, start_ts=None, end_ts=None, p
                 if progress_callback:
                     progress_callback.onProgress(int((i + 1) / len(unique_days) * 100))
                 continue
-                
-            matches = day_df.groupby('L').filter(lambda x: x['A'].nunique() > 1)
-            for _, r in matches.iterrows():
-                key = (r['S'], r['A'], r['L'], r['C'])
-                if key not in seen_keys:
-                    seen_keys.add(key)
+            
+            # 1. Exact Sector Match (LAC + Cell + Loc)
+            for (lac, cell, loc), grp in day_df.groupby(['L', 'C', 'Loc']):
+                unique_as = sorted(grp['A'].unique().tolist())
+                if len(unique_as) >= 2:
+                    min_dt = grp['R'].min()
+                    max_dt = grp['R'].max()
+                    time_window = min_dt.strftime('%H:%M:%S') + ' - ' + max_dt.strftime('%H:%M:%S') if min_dt != max_dt else min_dt.strftime('%H:%M:%S')
+                    subj_list = []
+                    for ap in unique_as:
+                        ap_grp = grp[grp['A'] == ap]
+                        ap_min = ap_grp['R'].min().strftime('%H:%M')
+                        ap_max = ap_grp['R'].max().strftime('%H:%M')
+                        subj_list.append(f"{ap} ({ap_min})" if ap_min == ap_max else f"{ap} ({ap_min}-{ap_max})")
+                    
+                    loc_label = loc if loc != '--Empty--' else f"Sector [LAC: {lac}, Cell: {cell}]"
                     raw_results.append({
-                        "Time": r['S'], "A_Party": str(r['A']), 
-                        "B_Party": str(r['B']), "LAC": str(r['L']), 
-                        "Cell": str(r['C']), "BTS_Loc": str(r['Loc']), "Reason": "Tower Match"
+                        "Date": str(d),
+                        "Time_Window": time_window,
+                        "Start_DT": min_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        "End_DT": max_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        "Time": min_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                        "BTS_Loc": loc_label,
+                        "LAC": str(lac),
+                        "Cell": str(cell),
+                        "A_Parties": ", ".join(subj_list),
+                        "Subject_Count": len(unique_as),
+                        "Total_Events": len(grp),
+                        "Reason": "Exact Sector Match"
                     })
             
-            # Address Similarity Check (Optimized with thefuzz)
-            a_list = sorted(list(day_df['A'].unique()))
-            addr_map = day_df[day_df['Loc'] != '--Empty--'].groupby('A')['Loc'].unique().to_dict()
-            for i_ap in range(len(a_list)):
-                for j_ap in range(i_ap + 1, len(a_list)):
-                    ap1, ap2 = a_list[i_ap], a_list[j_ap]
-                    for ad1 in addr_map.get(ap1, []):
-                        for ad2 in addr_map.get(ap2, []):
-                            if fuzz.partial_ratio(str(ad1).lower(), str(ad2).lower()) >= 80:
-                                rows = day_df[(day_df['A'].isin([ap1, ap2])) & (day_df['Loc'].isin([ad1, ad2]))]
-                                for _, r in rows.iterrows():
-                                    key = (r['S'], r['A'], r['L'], r['C'])
-                                    if key not in seen_keys:
-                                        seen_keys.add(key)
-                                        raw_results.append({
-                                            "Time": r['S'], "A_Party": str(r['A']), 
-                                            "B_Party": str(r['B']), "LAC": str(r['L']), 
-                                            "Cell": str(r['C']), "BTS_Loc": str(r['Loc']), "Reason": "Address Similarity"
-                                        })
+            # 2. Location Address Match (across different towers/sectors on same date if not captured)
+            for loc, grp in day_df[day_df['Loc'] != '--Empty--'].groupby('Loc'):
+                unique_as = sorted(grp['A'].unique().tolist())
+                if len(unique_as) >= 2:
+                    lacs = ', '.join(sorted(grp['L'].unique().tolist()))
+                    cells = ', '.join(sorted(grp['C'].unique().tolist()))
+                    if not any(r['Date'] == str(d) and r['BTS_Loc'] == loc for r in raw_results):
+                        min_dt = grp['R'].min()
+                        max_dt = grp['R'].max()
+                        time_window = min_dt.strftime('%H:%M:%S') + ' - ' + max_dt.strftime('%H:%M:%S') if min_dt != max_dt else min_dt.strftime('%H:%M:%S')
+                        subj_list = []
+                        for ap in unique_as:
+                            ap_grp = grp[grp['A'] == ap]
+                            ap_min = ap_grp['R'].min().strftime('%H:%M')
+                            ap_max = ap_grp['R'].max().strftime('%H:%M')
+                            subj_list.append(f"{ap} ({ap_min})" if ap_min == ap_max else f"{ap} ({ap_min}-{ap_max})")
+                        
+                        raw_results.append({
+                            "Date": str(d),
+                            "Time_Window": time_window,
+                            "Start_DT": min_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                            "End_DT": max_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                            "Time": min_dt.strftime('%Y-%m-%d %H:%M:%S'),
+                            "BTS_Loc": loc,
+                            "LAC": lacs,
+                            "Cell": cells,
+                            "A_Parties": ", ".join(subj_list),
+                            "Subject_Count": len(unique_as),
+                            "Total_Events": len(grp),
+                            "Reason": "Same Address Match"
+                        })
 
             if progress_callback:
                 progress_callback.onProgress(int((i + 1) / len(unique_days) * 100))
 
-        # Sort results descending by Time
-        raw_results.sort(key=lambda x: x.get("Time", ""), reverse=True)
+        # Sort results descending by Start_DT
+        raw_results.sort(key=lambda x: x.get("Start_DT", ""), reverse=True)
 
         cache_path = _get_cache_path(output_dir, "overlap_results.json")
         with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(raw_results, f, ensure_ascii=False)
             
-        return {"status": "success", "cache_path": cache_path, "count": len(raw_results), "summary": f"Detected {len(raw_results)} spatial overlaps."}
+        return {"status": "success", "cache_path": cache_path, "count": len(raw_results), "summary": f"Detected {len(raw_results)} spatial co-locations."}
     except Exception as e:
         return {"status": "error", "message": f"Overlap Analysis Failed: {str(e)}"}
 
@@ -459,7 +487,31 @@ def export_same_location_to_excel(json_data, output_path):
         data = json.loads(json_data)
         if not data:
             return {"status": "error", "message": "No data to export."}
-        pd.DataFrame(data).to_excel(output_path, index=False)
+        
+        formatted_rows = []
+        for r in data:
+            formatted_rows.append({
+                "Date": r.get("Date", ""),
+                "Time Window": r.get("Time_Window", r.get("Time", "")),
+                "BTS Location (Address)": r.get("BTS_Loc", ""),
+                "LAC": r.get("LAC", ""),
+                "Cell ID": r.get("Cell", ""),
+                "Co-Located A-Parties": r.get("A_Parties", r.get("A_Party", "")),
+                "Hit Count": r.get("Total_Events", 1),
+                "Correlation Basis": r.get("Reason", "Tower Match")
+            })
+        
+        df = pd.DataFrame(formatted_rows)
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Co-Location Matrix")
+            ws = writer.sheets["Co-Location Matrix"]
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or '')) for cell in col)
+                col_letter = col[0].column_letter
+                ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+                for cell in col:
+                    cell.number_format = '@'
+
         return {"status": "success", "output_path": output_path}
     except Exception as e:
         return {"status": "error", "message": str(e)}

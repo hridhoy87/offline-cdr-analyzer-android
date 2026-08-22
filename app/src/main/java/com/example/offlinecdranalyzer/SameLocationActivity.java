@@ -158,10 +158,14 @@ public class SameLocationActivity extends AppCompatActivity {
                 JSONArray filtered = new JSONArray();
                 
                 SimpleDateFormat parseSdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+                SimpleDateFormat parseDateOnly = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
                 
                 for (int i = 0; i < original.length(); i++) {
                     JSONObject obj = original.getJSONObject(i);
-                    String timeStr = obj.optString("Time");
+                    String timeStr = obj.optString("Start_DT", obj.optString("Time", ""));
+                    if (timeStr.isEmpty()) {
+                        timeStr = obj.optString("Date", "") + " 00:00:00";
+                    }
                     try {
                         Date date = parseSdf.parse(timeStr);
                         if (date == null) {
@@ -262,14 +266,14 @@ public class SameLocationActivity extends AppCompatActivity {
                 if (total == 0) {
                     runOnUiThread(() -> {
                         loadingOverlay.setVisibility(View.GONE);
-        loadingLogo.clearAnimation();
-                        Toast.makeText(this, "Analysis yielded zero overlaps", Toast.LENGTH_SHORT).show();
+                        loadingLogo.clearAnimation();
+                        Toast.makeText(this, "Analysis yielded zero co-locations", Toast.LENGTH_SHORT).show();
                     });
                 }
             } catch (Exception e) {
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(View.GONE);
-        loadingLogo.clearAnimation();
+                    loadingLogo.clearAnimation();
                     Toast.makeText(this, "Display error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
                 });
             }
@@ -303,12 +307,12 @@ public class SameLocationActivity extends AppCompatActivity {
         header.setBackgroundColor(Color.parseColor("#2C3E50"));
         header.setPadding(0, 12, 0, 12);
 
-        header.addView(createHeaderCell("Time"));
-        header.addView(createHeaderCell("A Party"));
-        header.addView(createHeaderCell("B Party"));
+        header.addView(createHeaderCell("Date"));
+        header.addView(createHeaderCell("Time Window"));
+        header.addView(createHeaderCell("BTS Location (Address)"));
         header.addView(createHeaderCell("LAC"));
         header.addView(createHeaderCell("Cell"));
-        header.addView(createHeaderCell("BTS Loc"));
+        header.addView(createHeaderCell("Co-Located A-Parties (Active Windows)"));
         header.addView(createHeaderCell("Reason"));
 
         locTable.addView(header);
@@ -334,15 +338,12 @@ public class SameLocationActivity extends AppCompatActivity {
             row.setBackgroundColor(Color.argb(20, 128, 128, 128));
         }
 
-        row.addView(createCell(obj.optString("Time", "N/A")));
-        row.addView(createCell(obj.optString("A_Party", "N/A")));
-        row.addView(createCell(obj.optString("B_Party", "N/A")));
-        row.addView(createCell(obj.optString("LAC", "N/A")));
-        row.addView(createCell(obj.optString("Cell", "N/A")));
+        row.addView(createCell(obj.optString("Date", "N/A")));
+        row.addView(createCell(obj.optString("Time_Window", obj.optString("Time", "N/A"))));
         
         String btsLoc = obj.optString("BTS_Loc", "N/A");
         TextView btsCell = createCell(btsLoc);
-        if (!"N/A".equals(btsLoc) && !"Unknown".equalsIgnoreCase(btsLoc)) {
+        if (!"N/A".equals(btsLoc) && !"Unknown".equalsIgnoreCase(btsLoc) && !"--Empty--".equals(btsLoc)) {
             btsCell.setTextColor(Color.parseColor("#3498DB")); // Highlight as clickable
             btsCell.setOnClickListener(v -> {
                 Uri gmmIntentUri = Uri.parse("google.navigation:q=" + Uri.encode(btsLoc));
@@ -358,7 +359,15 @@ public class SameLocationActivity extends AppCompatActivity {
         }
         row.addView(btsCell);
 
-        row.addView(createCell(obj.optString("Reason", "N/A")));
+        row.addView(createCell(obj.optString("LAC", "N/A")));
+        row.addView(createCell(obj.optString("Cell", "N/A")));
+        
+        String aParties = obj.optString("A_Parties", obj.optString("A_Party", "N/A"));
+        TextView aPartiesCell = createCell(aParties);
+        aPartiesCell.setTypeface(null, android.graphics.Typeface.BOLD);
+        row.addView(aPartiesCell);
+
+        row.addView(createCell(obj.optString("Reason", "Exact Sector Match")));
         return row;
     }
 
@@ -389,11 +398,19 @@ public class SameLocationActivity extends AppCompatActivity {
         
         drawHeader(canvas, paint);
         
-        paint.setTextSize(10f);
+        paint.setTextSize(9f);
         paint.setFakeBoldText(false);
         float y = 85;
-        float btsX = 460;
-        float btsWidth = 350;
+        
+        float dateX = 30;
+        float timeX = 95;
+        float btsX = 185;
+        float btsWidth = 190;
+        float lacX = 385;
+        float cellX = 425;
+        float apX = 475;
+        float apWidth = 240;
+        float reasonX = 725;
         
         try {
             JSONArray array = new JSONArray(rawJson);
@@ -403,7 +420,11 @@ public class SameLocationActivity extends AppCompatActivity {
                 String bts = obj.optString("BTS_Loc", "N/A");
                 List<String> btsLines = wrapText(bts, btsWidth, paint);
                 
-                float rowHeight = Math.max(15, btsLines.size() * 12);
+                String aParties = obj.optString("A_Parties", obj.optString("A_Party", "N/A"));
+                List<String> apLines = wrapText(aParties, apWidth, paint);
+                
+                int maxLines = Math.max(btsLines.size(), apLines.size());
+                float rowHeight = Math.max(14, maxLines * 11);
                 
                 if (y + rowHeight > 560) {
                     pdfDocument.finishPage(page);
@@ -414,19 +435,27 @@ public class SameLocationActivity extends AppCompatActivity {
                     y = 85;
                 }
 
-                canvas.drawText(obj.optString("Time", "N/A"), 40, y, paint);
-                canvas.drawText(obj.optString("A_Party", "N/A"), 140, y, paint);
-                canvas.drawText(obj.optString("B_Party", "N/A"), 240, y, paint);
-                canvas.drawText(obj.optString("LAC", "N/A"), 340, y, paint);
-                canvas.drawText(obj.optString("Cell", "N/A"), 400, y, paint);
+                canvas.drawText(obj.optString("Date", "N/A"), dateX, y, paint);
+                canvas.drawText(obj.optString("Time_Window", obj.optString("Time", "N/A")), timeX, y, paint);
                 
                 float lineY = y;
                 for (String line : btsLines) {
                     canvas.drawText(line, btsX, lineY, paint);
-                    lineY += 12;
+                    lineY += 11;
                 }
                 
-                y += rowHeight + 8;
+                canvas.drawText(obj.optString("LAC", "N/A"), lacX, y, paint);
+                canvas.drawText(obj.optString("Cell", "N/A"), cellX, y, paint);
+                
+                float apLineY = y;
+                for (String line : apLines) {
+                    canvas.drawText(line, apX, apLineY, paint);
+                    apLineY += 11;
+                }
+                
+                canvas.drawText(obj.optString("Reason", "Exact Sector Match"), reasonX, y, paint);
+                
+                y += rowHeight + 6;
             }
         } catch (JSONException e) {
             e.printStackTrace();
@@ -511,17 +540,18 @@ public class SameLocationActivity extends AppCompatActivity {
     private void drawHeader(Canvas canvas, Paint paint) {
         paint.setTextSize(14f);
         paint.setFakeBoldText(true);
-        canvas.drawText("Same Location Analysis Report", 40, 35, paint);
+        canvas.drawText("Co-Location & Movement Correlation Analysis Report", 30, 35, paint);
         
-        paint.setTextSize(10f);
+        paint.setTextSize(9.5f);
         paint.setFakeBoldText(true);
         float y = 65;
-        canvas.drawText("Time", 40, y, paint);
-        canvas.drawText("A Party", 140, y, paint);
-        canvas.drawText("B Party", 240, y, paint);
-        canvas.drawText("LAC", 340, y, paint);
-        canvas.drawText("Cell", 400, y, paint);
-        canvas.drawText("BTS Location (Full Address)", 460, y, paint);
+        canvas.drawText("Date", 30, y, paint);
+        canvas.drawText("Time Window", 95, y, paint);
+        canvas.drawText("BTS Location (Address)", 185, y, paint);
+        canvas.drawText("LAC", 385, y, paint);
+        canvas.drawText("Cell", 425, y, paint);
+        canvas.drawText("Co-Located A-Parties", 475, y, paint);
+        canvas.drawText("Reason", 725, y, paint);
         paint.setFakeBoldText(false);
     }
 

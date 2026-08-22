@@ -99,7 +99,7 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             logs_html += "<tr><td colspan='5'>No records found.</td></tr>"
         logs_html += "</tbody></table>"
 
-        spatial_html = "<h2 class='section-title'>📍 Spatial Cross-Over Interceptions</h2>"
+        spatial_html = "<h2 class='section-title'>📍 Co-Location & Spatial Cross-Over Interceptions</h2>"
         if spatial_summary:
             spatial_html += f"<div class='crisp-summary'><b>Summary Matrix:</b><br/>{str(spatial_summary)}</div>"
         
@@ -111,12 +111,19 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             sl_raw = []
         
         if sl_raw:
-            spatial_html += "<table class='forensic-table'><thead><tr><th>Time</th><th>Ap</th><th>Bp</th><th>LAC</th><th>Cell</th><th>Address</th><th>Reason</th></tr></thead><tbody>"
+            spatial_html += "<table class='forensic-table'><thead><tr><th>Date</th><th>Time Window</th><th>BTS Address</th><th>LAC</th><th>Cell</th><th>Co-Located A-Parties</th><th>Reason</th></tr></thead><tbody>"
             for r in sl_raw[:500]:
-                spatial_html += f"<tr><td>{r.get('Time')}</td><td>{str(r.get('A_Party'))}</td><td>{str(r.get('B_Party'))}</td><td>{r.get('LAC')}</td><td>{r.get('Cell')}</td><td>{r.get('BTS_Loc')}</td><td>{r.get('Reason')}</td></tr>"
+                date_val = r.get('Date', '')
+                time_win = r.get('Time_Window', r.get('Time', ''))
+                bts_val = str(r.get('BTS_Loc', ''))
+                lac_val = str(r.get('LAC', ''))
+                cell_val = str(r.get('Cell', ''))
+                aps_val = str(r.get('A_Parties', r.get('A_Party', '')))
+                reason_val = str(r.get('Reason', 'Exact Sector Match'))
+                spatial_html += f"<tr><td>{date_val}</td><td>{time_win}</td><td>{bts_val}</td><td>{lac_val}</td><td>{cell_val}</td><td><b>{aps_val}</b></td><td>{reason_val}</td></tr>"
             spatial_html += "</tbody></table>"
         else:
-            spatial_html += "<p><i>No overlaps detected.</i></p>"
+            spatial_html += "<p><i>No co-locations detected across analyzed targets.</i></p>"
 
         # Template
         html = f"""
