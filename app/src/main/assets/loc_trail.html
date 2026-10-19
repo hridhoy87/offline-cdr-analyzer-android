@@ -247,7 +247,7 @@
             margin-right: 3px;
         }
 
-        /* Leaflet Popup Styling - Constrained to prevent overshooting screen */
+        /* Leaflet Popup Styling - Constrained to ~60% screen width without collapsing */
         .leaflet-popup {
             max-width: calc(100vw - 32px) !important;
         }
@@ -259,15 +259,15 @@
             border-radius: 10px !important;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
             padding: 2px !important;
-            max-width: calc(100vw - 32px) !important;
             box-sizing: border-box !important;
         }
 
         .leaflet-popup-content {
             margin: 8px 10px !important;
             line-height: 1.4 !important;
-            max-width: calc(100vw - 56px) !important;
-            width: auto !important;
+            width: 62vw !important;
+            min-width: 220px !important;
+            max-width: 270px !important;
             word-wrap: break-word !important;
             overflow-wrap: break-word !important;
             box-sizing: border-box !important;
@@ -282,7 +282,6 @@
             font-size: 11px;
             line-height: 1.45;
             width: 100%;
-            max-width: 270px;
             box-sizing: border-box;
             word-break: break-word;
         }
@@ -360,11 +359,10 @@
             font-size: 11px !important;
             font-weight: 600 !important;
             border-radius: 6px !important;
-            padding: 4px 8px !important;
+            padding: 5px 9px !important;
             box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+            white-space: nowrap !important;
             max-width: calc(100vw - 40px) !important;
-            white-space: normal !important;
-            word-break: break-word !important;
         }
 
         .leaflet-tooltip::before {
@@ -372,6 +370,7 @@
         }
 
         .animated-tooltip {
+            white-space: nowrap !important;
             pointer-events: none !important;
         }
     </style>
@@ -589,7 +588,7 @@
                             </a>
                         </div>
                     `;
-                    marker.bindPopup(popupContent, { maxWidth: 280, minWidth: 200, autoPan: true, autoPanPadding: [20, 20] });
+                    marker.bindPopup(popupContent, { maxWidth: 270, minWidth: 220, autoPan: true, autoPanPadding: [20, 20] });
                     trailLayerGroup.addLayer(marker);
                 });
 
