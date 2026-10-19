@@ -101,7 +101,7 @@ public class MainActivity extends AppCompatActivity {
     private View summaryCardContent;
     private TextView badgeImei, badgeMultiSim, badgeNightRoutine;
     private LinearLayout heatmapContainer;
-    private Button btnOpenReport, btnTakeAPeek, btnLinkAnalysis, btnSameLocation;
+    private Button btnOpenReport, btnTakeAPeek, btnLinkAnalysis, btnSameLocation, btnLocTrail;
     private ImageButton btnSearchCdr;
     private View locProgressContainer;
     private ProgressBar locProgressBar;
@@ -115,6 +115,7 @@ public class MainActivity extends AppCompatActivity {
     private String lastSpatialSummary = null;
     private String lastPreviewJson = null;
     private String lastSummaryHtml = null;
+    private String lastLocTrailJson = null;
     
     private Calendar filterStartCal = null;
     private Calendar filterEndCal = null;
@@ -220,6 +221,7 @@ public class MainActivity extends AppCompatActivity {
         btnOpenReport = findViewById(R.id.btnOpenReport);
         btnTakeAPeek = findViewById(R.id.btnTakeAPeek);
         btnLinkAnalysis = findViewById(R.id.btnLinkAnalysis);
+        btnLocTrail = findViewById(R.id.btnLocTrail);
         btnSameLocation = findViewById(R.id.btnSameLocation);
         ImageButton btnMenu = findViewById(R.id.btnMenu);
         Button btnCropLauncher = findViewById(R.id.btnCropLauncher);
@@ -233,11 +235,41 @@ public class MainActivity extends AppCompatActivity {
             startActivity(new Intent(this, CropActivity.class));
         });
 
+        btnLocTrail.setOnClickListener(v -> {
+            hideKeyboard(v);
+            if (lastLocTrailJson == null) {
+                File cached = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "CDR_Reports/.cache_engine/loc_trail.json");
+                if (cached.exists()) {
+                    lastLocTrailJson = readFileFromDisk(cached.getAbsolutePath());
+                }
+            }
+
+            if (lastLocTrailJson != null) {
+                try {
+                    File tempFile = new File(getCacheDir(), "loc_trail_data.json");
+                    FileOutputStream fos = new FileOutputStream(tempFile);
+                    fos.write(lastLocTrailJson.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    fos.close();
+
+                    Intent intent = new Intent(this, LocTrailActivity.class);
+                    intent.putExtra("loc_trail_path", tempFile.getAbsolutePath());
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Toast.makeText(this, "Error preparing location trail: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            } else {
+                Toast.makeText(this, "No location trail available. Please process a CDR first.", Toast.LENGTH_SHORT).show();
+            }
+        });
+
         btnMenu.setOnClickListener(v -> {
             PopupMenu popup = new PopupMenu(MainActivity.this, v);
             popup.getMenuInflater().inflate(R.menu.main_menu, popup.getMenu());
             popup.setOnMenuItemClickListener(item -> {
-                if (item.getItemId() == R.id.action_about) {
+                if (item.getItemId() == R.id.action_loc_trail) {
+                    btnLocTrail.performClick();
+                    return true;
+                } else if (item.getItemId() == R.id.action_about) {
                     showAboutDialog();
                     return true;
                 } else if (item.getItemId() == R.id.action_update) {
@@ -702,6 +734,10 @@ public class MainActivity extends AppCompatActivity {
             String graphCachePath = (pyGraphCache != null) ? pyGraphCache.toString() : null;
             if (graphCachePath != null) lastGraphData = readFileFromDisk(graphCachePath);
 
+            PyObject pyLocTrailCache = result.get(py.getBuiltins().get("str").call("loc_trail_cache"));
+            String locTrailCachePath = (pyLocTrailCache != null) ? pyLocTrailCache.toString() : null;
+            if (locTrailCachePath != null) lastLocTrailJson = readFileFromDisk(locTrailCachePath);
+
             PyObject pyMetrics = result.get(py.getBuiltins().get("str").call("metrics"));
             if (pyMetrics == null) throw new Exception("Metrics missing from engine response");
             Map<PyObject, PyObject> metrics = pyMetrics.asMap();
@@ -808,6 +844,8 @@ public class MainActivity extends AppCompatActivity {
 
             btnLinkAnalysis.setVisibility(View.VISIBLE);
             btnSameLocation.setVisibility(View.VISIBLE);
+            btnLocTrail.setVisibility(View.VISIBLE);
+            btnLocTrail.setText("📍 Loc Trail");
 
             // Render Temporal Heatmaps for each A-party
             heatmapContainer.removeAllViews();
@@ -1307,9 +1345,10 @@ public class MainActivity extends AppCompatActivity {
 
         locationInput.setText(""); searchCdrInput.setText(""); selectedFilePaths.clear();
         lastGeneratedReportPath = null; lastPreviewJson = null; lastGraphData = null;
-        lastSummaryHtml = null; lastSpatialSummary = null;
+        lastSummaryHtml = null; lastSpatialSummary = null; lastLocTrailJson = null;
         resultsContainer.setVisibility(View.GONE); loadingContainer.setVisibility(View.GONE);
         btnLinkAnalysis.setVisibility(View.GONE); btnSameLocation.setVisibility(View.GONE);
+        if (btnLocTrail != null) btnLocTrail.setVisibility(View.GONE);
         loadingLogo.clearAnimation(); rippleEffect.clearAnimation();
         heatmapContainer.removeAllViews();
         statusText.setText(R.string.status_select_files);
@@ -1327,7 +1366,8 @@ public class MainActivity extends AppCompatActivity {
                     if (f.getName().startsWith("temp_cdr_") || 
                         f.getName().startsWith("crop_") || 
                         f.getName().equals("same_loc_results.json") ||
-                        f.getName().equals("link_graph_data.json")) {
+                        f.getName().equals("link_graph_data.json") ||
+                        f.getName().equals("loc_trail_data.json")) {
                         f.delete();
                     }
                 }

@@ -1,3 +1,17 @@
+// Fix for AGP AndroidLocationsException when both ANDROID_PREFS_ROOT and ANDROID_USER_HOME are set
+try {
+    val peClass = Class.forName("java.lang.ProcessEnvironment")
+    val theEnvField = peClass.getDeclaredField("theEnvironment")
+    theEnvField.isAccessible = true
+    (theEnvField.get(null) as? MutableMap<*, *>)?.remove("ANDROID_PREFS_ROOT")
+
+    val theCiEnvField = peClass.getDeclaredField("theCaseInsensitiveEnvironment")
+    theCiEnvField.isAccessible = true
+    (theCiEnvField.get(null) as? MutableMap<*, *>)?.remove("ANDROID_PREFS_ROOT")
+} catch (_: Exception) {
+}
+System.clearProperty("ANDROID_PREFS_ROOT")
+
 pluginManagement {
     repositories {
         google {

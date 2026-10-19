@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Location Movement Trail</title>
+    <link rel="stylesheet" href="leaflet.css" />
+    <script src="leaflet.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #0b1120;
+            color: #f1f5f9;
+        }
+
+        #map {
+            width: 100vw;
+            height: 100vh;
+            background-color: #0f172a;
+            /* High-tech tactical grid fallback if offline */
+            background-image: 
+                linear-gradient(rgba(30, 41, 59, 0.4) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(30, 41, 59, 0.4) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+
+        /* Top Floating HUD */
+        .hud-panel {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.90);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.7);
+            border-radius: 12px;
+            padding: 10px 16px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .hud-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .hud-title {
+            font-size: 15px;
+            font-weight: 800;
+            color: #38bdf8;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            letter-spacing: -0.3px;
+        }
+
+        .hud-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-ctrl {
+            background: #1e293b;
+            color: #f8fafc;
+            border: 1px solid #334155;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s;
+        }
+
+        .btn-ctrl:hover {
+            background: #334155;
+            border-color: #38bdf8;
+        }
+
+        /* Bottom Floating Legend & Replay Hub */
+        .legend-card {
+            position: absolute;
+            bottom: 16px;
+            left: 12px;
+            right: 12px;
+            max-width: 480px;
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.94);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(51, 65, 85, 0.75);
+            border-radius: 14px;
+            padding: 12px 14px;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6);
+            max-height: 48vh;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .legend-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+            padding-bottom: 6px;
+        }
+
+        .legend-title {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #94a3b8;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-list {
+            overflow-y: auto;
+            max-height: 32vh;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            padding-right: 2px;
+        }
+
+        /* Party Row */
+        .party-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(30, 41, 59, 0.55);
+            border: 1px solid rgba(51, 65, 85, 0.5);
+            border-radius: 8px;
+            padding: 7px 10px;
+            transition: all 0.2s;
+        }
+
+        .party-row:hover {
+            background: rgba(30, 41, 59, 0.85);
+            border-color: rgba(56, 189, 248, 0.4);
+        }
+
+        .party-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .color-bar {
+            width: 24px;
+            height: 6px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .party-name {
+            font-size: 12.5px;
+            font-weight: 700;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+            color: #f8fafc;
+        }
+
+        .party-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-party-play {
+            background: #0284c7;
+            color: #ffffff;
+            border: 1px solid #38bdf8;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+        }
+
+        .btn-party-play:hover {
+            background: #0369a1;
+        }
+
+        .btn-party-play.active {
+            background: #f59e0b;
+            border-color: #fbbf24;
+            color: #0f172a;
+        }
+
+        .btn-party-focus {
+            background: #1e293b;
+            color: #94a3b8;
+            border: 1px solid #334155;
+            padding: 4px 7px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-party-focus:hover {
+            color: #ffffff;
+            border-color: #38bdf8;
+        }
+
+        .legend-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-top: 6px;
+            border-top: 1px solid rgba(51, 65, 85, 0.6);
+            font-size: 10px;
+            color: #94a3b8;
+        }
+
+        .dot-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 3px;
+        }
+
+        /* Leaflet Popup Styling */
+        .leaflet-popup-content-wrapper {
+            background: rgba(15, 23, 42, 0.96) !important;
+            color: #f8fafc !important;
+            border: 1px solid #38bdf8 !important;
+            border-radius: 10px !important;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
+            padding: 4px;
+        }
+
+        .leaflet-popup-tip {
+            background: rgba(15, 23, 42, 0.96) !important;
+            border: 1px solid #38bdf8 !important;
+        }
+
+        .popup-card {
+            font-size: 11.5px;
+            line-height: 1.5;
+            min-width: 210px;
+            max-width: 280px;
+        }
+
+        .popup-header {
+            font-weight: 700;
+            color: #38bdf8;
+            font-size: 12.5px;
+            border-bottom: 1px solid rgba(56, 189, 248, 0.3);
+            padding-bottom: 4px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .popup-row {
+            margin-bottom: 4px;
+        }
+
+        .popup-label {
+            color: #94a3b8;
+            font-size: 10.5px;
+            font-weight: 600;
+        }
+
+        .popup-val {
+            color: #f1f5f9;
+            font-weight: 500;
+        }
+
+        .btn-gmaps {
+            display: block;
+            width: 100%;
+            margin-top: 8px;
+            padding: 6px;
+            background: #0284c7;
+            color: #ffffff;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 11px;
+            border: none;
+            cursor: pointer;
+        }
+
+        .btn-gmaps:hover {
+            background: #0369a1;
+        }
+
+        /* Tooltip styling */
+        .leaflet-tooltip {
+            background: rgba(15, 23, 42, 0.92) !important;
+            color: #f8fafc !important;
+            border: 1px solid #38bdf8 !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            border-radius: 6px !important;
+            padding: 4px 8px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+        }
+
+        .leaflet-tooltip::before {
+            border-top-color: rgba(15, 23, 42, 0.92) !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Map Canvas -->
+    <div id="map"></div>
+
+    <!-- Top Floating HUD -->
+    <div class="hud-panel">
+        <div class="hud-left">
+            <span class="hud-title">📍 Loc Trail</span>
+        </div>
+        <div class="hud-right">
+            <button class="btn-ctrl" onclick="fitAllBounds()">🎯 Fit All</button>
+        </div>
+    </div>
+
+    <!-- Bottom Floating Legend & Replay Hub -->
+    <div class="legend-card" id="legendCard">
+        <div class="legend-header">
+            <span class="legend-title">🗺️ CDR Trajectories & Replay</span>
+        </div>
+        <div class="legend-list" id="legendList">
+            <!-- Dynamic rows populated per A-Party CDR -->
+        </div>
+        <div class="legend-footer">
+            <div><span class="dot-indicator" style="background:#10b981;"></span>Start Ping</div>
+            <div><span class="dot-indicator" style="background:#ef4444;"></span>Latest Ping</div>
+        </div>
+    </div>
+
+    <script>
+        let map = null;
+        let trailLayerGroup = null;
+        let animatedMarker = null;
+
+        let rawPoints = [];
+        let partyList = [];
+        let partyPointsMap = {};
+        let partyPolylines = {};
+        let partyColorMap = {};
+
+        // Animation State per A-Party
+        let activeReplayParty = null;
+        let isPlaying = false;
+        let animationIndex = 0;
+        let animationTimer = null;
+
+        // Distinct vibrant forensic color palette for A-parties
+        const PARTY_PALETTE = [
+            '#06b6d4', // Cyan
+            '#f43f5e', // Rose
+            '#10b981', // Emerald Green
+            '#a855f7', // Purple
+            '#f59e0b', // Amber / Orange
+            '#3b82f6', // Blue
+            '#ec4899', // Pink
+            '#84cc16'  // Lime
+        ];
+
+        // Initialize Leaflet Map
+        function initMap() {
+            map = L.map('map', {
+                center: [23.8103, 90.4125],
+                zoom: 12,
+                zoomControl: false
+            });
+
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+            // OpenStreetMap Standard Tiles
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+            }).addTo(map);
+
+            trailLayerGroup = L.layerGroup().addTo(map);
+        }
+
+        // Primary Entrypoint called by Android WebView evaluateJavascript
+        window.renderLocTrail = function(jsonString) {
+            try {
+                if (!map) initMap();
+
+                const data = (typeof jsonString === 'string') ? JSON.parse(jsonString) : jsonString;
+                rawPoints = data.points || [];
+
+                if (rawPoints.length === 0) {
+                    alert("No GPS coordinates were found in the BTS addresses of this CDR.");
+                    return;
+                }
+
+                // Collect distinct A-parties
+                partyList = [];
+                if (data.a_parties && Array.isArray(data.a_parties) && data.a_parties.length > 0) {
+                    partyList = [...data.a_parties];
+                }
+                rawPoints.forEach(pt => {
+                    const ap = pt.ap || 'Unknown';
+                    if (!partyList.includes(ap)) partyList.push(ap);
+                });
+
+                // Assign distinct color to each A-party
+                partyColorMap = {};
+                partyPointsMap = {};
+                partyList.forEach((ap, idx) => {
+                    partyColorMap[ap] = PARTY_PALETTE[idx % PARTY_PALETTE.length];
+                    partyPointsMap[ap] = [];
+                });
+
+                // Group points by A-party
+                rawPoints.forEach(pt => {
+                    const ap = pt.ap || partyList[0] || 'Unknown';
+                    if (!partyPointsMap[ap]) partyPointsMap[ap] = [];
+                    partyPointsMap[ap].push(pt);
+                });
+
+                // Render lines and dots on map
+                plotAllTrails();
+
+                // Build legend describing line colors and play/pause buttons
+                buildLegend();
+
+                // Fit map bounds to show all routes
+                fitAllBounds();
+            } catch (err) {
+                console.error("renderLocTrail Error:", err);
+            }
+        };
+
+        function plotAllTrails() {
+            trailLayerGroup.clearLayers();
+            stopCurrentAnimation();
+            partyPolylines = {};
+
+            const allLatLngs = [];
+
+            partyList.forEach(ap => {
+                const pts = partyPointsMap[ap];
+                if (!pts || pts.length === 0) return;
+
+                const color = partyColorMap[ap];
+                const latlngs = [];
+
+                pts.forEach((pt, index) => {
+                    const lat = pt.lat;
+                    const lon = pt.lon;
+                    const latlng = [lat, lon];
+                    latlngs.push(latlng);
+                    allLatLngs.push(latlng);
+
+                    const isStart = (index === 0);
+                    const isEnd = (index === pts.length - 1);
+
+                    let fillColor = color;
+                    let strokeColor = '#ffffff';
+                    let radius = 6.5;
+
+                    if (isStart) {
+                        fillColor = '#10b981';
+                        radius = 8.5;
+                    } else if (isEnd) {
+                        fillColor = '#ef4444';
+                        radius = 8.5;
+                    }
+
+                    const marker = L.circleMarker(latlng, {
+                        radius: radius,
+                        fillColor: fillColor,
+                        color: strokeColor,
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.9
+                    });
+
+                    // Tooltip
+                    marker.bindTooltip(`<b>${ap}</b> | Point #${index + 1}<br/>${pt.time || pt.datetime || ''}<br/>Lat: ${lat}, Lon: ${lon}`, {
+                        permanent: false,
+                        direction: 'top'
+                    });
+
+                    // Detailed Popup on Click
+                    const popupContent = `
+                        <div class="popup-card">
+                            <div class="popup-header">
+                                <span style="color:${color};">📍 ${ap} #${index + 1} ${isStart ? '(START)' : (isEnd ? '(LATEST)' : '')}</span>
+                                <span style="color:#94a3b8; font-size:10px;">${pt.date || ''}</span>
+                            </div>
+                            <div class="popup-row">
+                                <span class="popup-label">⏰ Time:</span> <span class="popup-val">${pt.time || pt.datetime || '--'}</span>
+                            </div>
+                            <div class="popup-row">
+                                <span class="popup-label">🌐 Lat, Lon:</span> <span class="popup-val"><b>${lat}, ${lon}</b></span>
+                            </div>
+                            <div class="popup-row">
+                                <span class="popup-label">🗼 BTS Tower:</span> <span class="popup-val">${pt.location || pt.raw_loc || 'Unknown Site'}</span>
+                            </div>
+                            <div class="popup-row">
+                                <span class="popup-label">📱 Target (Ap):</span> <span class="popup-val">${pt.ap || '--'}</span>
+                            </div>
+                            <div class="popup-row">
+                                <span class="popup-label">📞 Contact (Bp):</span> <span class="popup-val">${pt.bp || '--'}</span>
+                            </div>
+                            <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" class="btn-gmaps" target="_blank">
+                                🗺️ Navigate in Google Maps
+                            </a>
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+                    trailLayerGroup.addLayer(marker);
+                });
+
+                // Distinct colored polyline for this specific CDR / A-Party
+                const polyline = L.polyline(latlngs, {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.88,
+                    smoothFactor: 1
+                }).addTo(trailLayerGroup);
+
+                partyPolylines[ap] = polyline;
+            });
+        }
+
+        // Build Legend describing line colors and play/pause buttons
+        function buildLegend() {
+            const listEl = document.getElementById('legendList');
+            listEl.innerHTML = '';
+
+            partyList.forEach(ap => {
+                const pts = partyPointsMap[ap] || [];
+                if (pts.length === 0) return;
+
+                const color = partyColorMap[ap];
+                const row = document.createElement('div');
+                row.className = 'party-row';
+
+                const safeAp = encodeURIComponent(ap);
+
+                row.innerHTML = `
+                    <div class="party-info" onclick="focusParty('${ap}')" title="Zoom to ${ap}">
+                        <div class="color-bar" style="background:${color}; box-shadow:0 0 6px ${color};"></div>
+                        <span class="party-name">📱 ${ap}</span>
+                    </div>
+                    <div class="party-actions">
+                        <button class="btn-party-play" id="btn-play-${safeAp}" onclick="togglePartyReplay('${ap}')">
+                            ▶ Play
+                        </button>
+                        <button class="btn-party-focus" onclick="focusParty('${ap}')" title="Center map on ${ap}">
+                            🎯
+                        </button>
+                    </div>
+                `;
+                listEl.appendChild(row);
+            });
+        }
+
+        // Zoom to a specific party's trail
+        function focusParty(ap) {
+            const poly = partyPolylines[ap];
+            if (poly) {
+                map.fitBounds(poly.getBounds(), { padding: [40, 40], maxZoom: 16 });
+            }
+        }
+
+        // Fit bounds for all active trails
+        function fitAllBounds() {
+            const allPolys = Object.values(partyPolylines);
+            if (allPolys.length === 0) return;
+
+            const group = new L.featureGroup(allPolys);
+            map.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 16 });
+        }
+
+        // Play/Pause Replay for a specific CDR / A-Party
+        function togglePartyReplay(ap) {
+            const safeAp = encodeURIComponent(ap);
+            const btn = document.getElementById(`btn-play-${safeAp}`);
+
+            if (activeReplayParty === ap && isPlaying) {
+                // Pause currently replaying party
+                stopCurrentAnimation();
+                if (btn) {
+                    btn.innerHTML = '▶ Play';
+                    btn.classList.remove('active');
+                }
+            } else {
+                // Stop any other active replay
+                stopCurrentAnimation();
+                resetAllPlayButtons();
+
+                // Start animation for this party
+                activeReplayParty = ap;
+                isPlaying = true;
+                animationIndex = 0;
+
+                if (btn) {
+                    btn.innerHTML = '⏸ Pause';
+                    btn.classList.add('active');
+                }
+
+                startPartyAnimation(ap);
+            }
+        }
+
+        function resetAllPlayButtons() {
+            partyList.forEach(ap => {
+                const btn = document.getElementById(`btn-play-${encodeURIComponent(ap)}`);
+                if (btn) {
+                    btn.innerHTML = '▶ Play';
+                    btn.classList.remove('active');
+                }
+            });
+        }
+
+        function startPartyAnimation(ap) {
+            const pts = partyPointsMap[ap];
+            if (!pts || pts.length === 0) return;
+
+            const color = partyColorMap[ap] || '#f59e0b';
+
+            if (!animatedMarker) {
+                animatedMarker = L.circleMarker([pts[0].lat, pts[0].lon], {
+                    radius: 11,
+                    fillColor: color,
+                    color: '#ffffff',
+                    weight: 3,
+                    fillOpacity: 1
+                }).addTo(map);
+            } else {
+                animatedMarker.setStyle({ fillColor: color });
+                animatedMarker.setLatLng([pts[0].lat, pts[0].lon]);
+            }
+
+            stepPartyAnimation(ap);
+        }
+
+        function stepPartyAnimation(ap) {
+            const pts = partyPointsMap[ap];
+            if (!isPlaying || activeReplayParty !== ap || !pts || animationIndex >= pts.length) {
+                stopCurrentAnimation();
+                resetAllPlayButtons();
+                return;
+            }
+
+            const pt = pts[animationIndex];
+            const latlng = [pt.lat, pt.lon];
+            animatedMarker.setLatLng(latlng);
+            animatedMarker.bindTooltip(`📍 <b>${ap}</b> #${animationIndex + 1}: ${pt.time || ''}<br/>${pt.location || ''}`, {
+                permanent: true,
+                direction: 'top'
+            }).openTooltip();
+
+            if (!map.getBounds().contains(latlng)) {
+                map.panTo(latlng, { animate: true, duration: 0.5 });
+            }
+
+            animationIndex++;
+            animationTimer = setTimeout(() => stepPartyAnimation(ap), 900);
+        }
+
+        function stopCurrentAnimation() {
+            isPlaying = false;
+            if (animationTimer) {
+                clearTimeout(animationTimer);
+                animationTimer = null;
+            }
+            if (animatedMarker) {
+                animatedMarker.closeTooltip();
+                map.removeLayer(animatedMarker);
+                animatedMarker = null;
+            }
+        }
+
+        // Auto-initialize map on load
+        window.addEventListener('DOMContentLoaded', () => {
+            initMap();
+        });
+    </script>
+</body>
+</html>

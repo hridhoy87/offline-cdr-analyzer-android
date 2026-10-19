@@ -3,6 +3,7 @@ Offline Forensic Intelligence Engine (Android Optimized - Disk-Backed Cache Edit
 Refactored for performance, stability, zero-RAM bloat, and offline operation.
 """
 import os
+import re
 import json
 import time
 import pandas as pd
@@ -298,12 +299,76 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         with open(graph_cache, "w", encoding="utf-8") as f:
             json.dump(graph_data, f, ensure_ascii=False)
 
+        # 9. Location Trail Extraction (Lat/Lon in BTS Address)
+        loc_trail_list = []
+        coord_pattern = re.compile(r'\(\s*([+-]?\d+(?:\.\d+)?)\s*[,;\s]\s*([+-]?\d+(?:\.\d+)?)\s*\)')
+        chrono_df = combined_df.sort_values(by='_parsed_dt').reset_index(drop=True)
+
+        for _, row in chrono_df.iterrows():
+            loc_val = str(row[col_L]) if pd.notna(row[col_L]) else ''
+            match = coord_pattern.search(loc_val)
+            if not match:
+                for col_name in chrono_df.columns:
+                    val_str = str(row[col_name]) if pd.notna(row[col_name]) else ''
+                    m = coord_pattern.search(val_str)
+                    if m:
+                        loc_val = val_str
+                        match = m
+                        break
+            if match:
+                try:
+                    c1 = float(match.group(1))
+                    c2 = float(match.group(2))
+                    if 20.0 <= c1 <= 27.5 and 88.0 <= c2 <= 93.0:
+                        lat, lon = c1, c2
+                    elif 88.0 <= c1 <= 93.0 and 20.0 <= c2 <= 27.5:
+                        lat, lon = c2, c1
+                    elif -90.0 <= c1 <= 90.0 and -180.0 <= c2 <= 180.0:
+                        lat, lon = c1, c2
+                    else:
+                        continue
+
+                    dt_val = row['_parsed_dt']
+                    dt_str = dt_val.strftime('%Y-%m-%d %H:%M:%S') if pd.notna(dt_val) else str(row[col_A])
+                    date_str = dt_val.strftime('%d %b %Y') if pd.notna(dt_val) else ''
+                    time_str = dt_val.strftime('%H:%M:%S') if pd.notna(dt_val) else ''
+
+                    clean_addr = coord_pattern.sub('', loc_val).strip().rstrip(',').strip()
+                    if not clean_addr:
+                        clean_addr = loc_val
+
+                    loc_trail_list.append({
+                        "id": len(loc_trail_list) + 1,
+                        "lat": round(lat, 6),
+                        "lon": round(lon, 6),
+                        "datetime": dt_str,
+                        "date": date_str,
+                        "time": time_str,
+                        "ap": str(row[col_C]),
+                        "bp": str(row[col_D]),
+                        "location": clean_addr,
+                        "raw_loc": loc_val
+                    })
+                except Exception:
+                    continue
+
+        loc_trail_data = {
+            "total_points": len(loc_trail_list),
+            "a_parties": unique_a_parties,
+            "points": loc_trail_list
+        }
+        loc_trail_cache = _get_cache_path(output_dir, "loc_trail.json")
+        with open(loc_trail_cache, "w", encoding="utf-8") as f:
+            json.dump(loc_trail_data, f, ensure_ascii=False)
+
         return {
             "status": "success", 
             "output_path": output_excel_path,
             "roadmap_cache": roadmap_cache,
             "preview_cache": preview_cache,
             "graph_cache": graph_cache,
+            "loc_trail_cache": loc_trail_cache,
+            "loc_trail_count": len(loc_trail_list),
             "metrics": {
                 "a_parties": summary_a_parties_str, 
                 "top_b_parties": [{"b_party": str(r[col_D]), "frequency": str(r["Frequency"]), "last_called": r[col_A]} for _, r in display_df.head(10).iterrows()],

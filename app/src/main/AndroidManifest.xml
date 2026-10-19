@@ -56,6 +56,12 @@
             android:exported="false"
             android:screenOrientation="landscape" />
 
+        <activity
+            android:name=".LocTrailActivity"
+            android:exported="false"
+            android:screenOrientation="sensor"
+            android:configChanges="orientation|screenSize" />
+
 
         <provider
             android:name="androidx.core.content.FileProvider"

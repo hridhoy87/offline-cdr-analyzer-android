@@ -1,0 +1,1447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline CDR Analyzer — Codebase Architecture & Flowchart Graph</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #162032;
+            --bg-card-hover: #1e2c44;
+            --border-color: #27354f;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --accent-green: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'Fira Code', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Top Header */
+        header {
+            background: linear-gradient(180deg, #131c2e 0%, var(--bg-primary) 100%);
+            border-bottom: 1px solid var(--border-color);
+            padding: 28px 40px;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            backdrop-filter: blur(12px);
+        }
+
+        .header-content {
+            max-width: 1500px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-title h1 {
+            font-size: 24px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #60a5fa, #38bdf8, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-title p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        .badges {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .badge {
+            font-size: 11px;
+            font-family: var(--font-mono);
+            padding: 4px 10px;
+            border-radius: 6px;
+            background: rgba(59, 130, 246, 0.15);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge-green {
+            background: rgba(16, 185, 129, 0.15);
+            color: #6ee7b7;
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-amber {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border-color: rgba(245, 158, 11, 0.3);
+        }
+
+        /* Layout Container */
+        .container {
+            max-width: 1500px;
+            margin: 30px auto;
+            padding: 0 40px;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 32px;
+        }
+
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+                padding: 0 20px;
+            }
+        }
+
+        /* Navigation Sidebar */
+        aside.sidebar {
+            position: sticky;
+            top: 130px;
+            height: calc(100vh - 160px);
+            overflow-y: auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+        }
+
+        .nav-group-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            font-weight: 700;
+            padding: 12px 10px 6px;
+        }
+
+        .nav-link {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 12px;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: rgba(59, 130, 246, 0.15);
+            color: #ffffff;
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        /* Main Content Sections */
+        main {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .section-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 28px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+            scroll-margin-top: 130px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 14px;
+        }
+
+        .section-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #ffffff;
+        }
+
+        /* Filter Controls */
+        .filter-bar {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .filter-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            background: var(--accent-blue);
+            color: #fff;
+            border-color: var(--accent-blue);
+        }
+
+        /* Component Grid */
+        .component-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 18px;
+        }
+
+        .component-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .component-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: var(--accent-blue);
+        }
+
+        .component-card.python::before { background: #eab308; }
+        .component-card.java::before { background: #ef4444; }
+        .component-card.web::before { background: #06b6d4; }
+        .component-card.db::before { background: #10b981; }
+
+        .component-card:hover {
+            background: var(--bg-card-hover);
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.4);
+        }
+
+        .component-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .component-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #ffffff;
+            font-family: var(--font-mono);
+        }
+
+        .component-type {
+            font-size: 10px;
+            font-family: var(--font-mono);
+            padding: 3px 8px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-secondary);
+        }
+
+        .component-desc {
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+
+        .component-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-muted);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            padding-top: 10px;
+        }
+
+        /* Modal Details */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            max-width: 800px;
+            width: 100%;
+            max-height: 85vh;
+            overflow-y: auto;
+            padding: 30px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+            position: relative;
+        }
+
+        .modal-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 24px;
+            cursor: pointer;
+        }
+
+        .modal-close:hover { color: #fff; }
+
+        /* Mermaid Graph Container */
+        .diagram-container {
+            background: #0d131f;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 20px;
+            overflow-x: auto;
+            margin-top: 16px;
+        }
+
+        /* Flowchart Tabs */
+        .tab-buttons {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 16px;
+        }
+
+        .tab-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .tab-btn:hover, .tab-btn.active {
+            background: var(--accent-blue);
+            color: #fff;
+            border-color: var(--accent-blue);
+        }
+
+        .tab-pane {
+            display: none;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        /* Tables */
+        table.forensic-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+            margin-top: 12px;
+        }
+
+        table.forensic-table th, table.forensic-table td {
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
+            text-align: left;
+        }
+
+        table.forensic-table th {
+            background: var(--bg-card);
+            color: #e2e8f0;
+            font-weight: 600;
+        }
+
+        table.forensic-table tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        code {
+            font-family: var(--font-mono);
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11.5px;
+            color: #38bdf8;
+        }
+
+        pre code {
+            display: block;
+            padding: 14px;
+            overflow-x: auto;
+            line-height: 1.5;
+            background: #090d16;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-content">
+            <div class="header-title">
+                <h1>📡 Offline CDR Analyzer — Architecture Graph</h1>
+                <p>Zero-RAM Bloat • Disk-Backed Caching • Chaquopy 3.12 • 3D Force Graph WebGL</p>
+            </div>
+            <div class="badges">
+                <span class="badge">SDK 35 (Android 15)</span>
+                <span class="badge badge-green">Python 3.12 (NDK arm64-v8a)</span>
+                <span class="badge badge-amber">100% Offline Edge Intelligence</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="nav-group-title">Navigation</div>
+            <a class="nav-link active" onclick="scrollToSection('architecture')">🏛️ System Architecture</a>
+            <a class="nav-link" onclick="scrollToSection('components')">📦 Component Catalog</a>
+            <a class="nav-link" onclick="scrollToSection('workflows')">⚡ Interactive Flowcharts</a>
+            <a class="nav-link" onclick="scrollToSection('chaquopy-bridge')">🌉 Chaquopy IPC Bridge</a>
+            <a class="nav-link" onclick="scrollToSection('data-schemas')">📊 Data Contracts & Caches</a>
+            <a class="nav-link" onclick="scrollToSection('bts-subsystem')">🗼 BTS Offline Database</a>
+            <a class="nav-link" onclick="scrollToSection('invariants')">🛡️ Invariants & Rules</a>
+        </aside>
+
+        <!-- Main Content Panes -->
+        <main>
+            <!-- 1. System Architecture -->
+            <section id="architecture" class="section-card">
+                <div class="section-header">
+                    <h2>🏛️ High-Level System Architecture</h2>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13.5px; margin-bottom: 16px;">
+                    The diagram below shows the 5-layer decoupled architecture: Android Presentation, Chaquopy Native NDK Bridge, Python Forensic Analytics Engine, Disk-Backed Caching Engine, and WebGL Hardware 3D Visualizer.
+                </p>
+                <div class="diagram-container">
+                    <pre class="mermaid">
+flowchart TB
+    subgraph UI_Layer ["Presentation Layer (Android Java 17)"]
+        MA["MainActivity<br/>(Dashboard, Search, Silent Correlator)"]
+        CA["CropActivity<br/>(Timeline & Location Cropping)"]
+        LA["LinkAnalysisActivity<br/>(3D Force Graph, SIM-IMEI, PDF)"]
+        SLA["SameLocationActivity<br/>(Landscape Co-Location Grid & Refine)"]
+        LTA["LocTrailActivity<br/>(Leaflet & OpenStreetMap Movement Trail)"]
+    end
+
+    subgraph Bridge ["Chaquopy Python Bridge (NDK arm64-v8a)"]
+        CH["Python.getInstance()<br/>PyObject.callAttr()"]
+        PL["ProgressListener<br/>(Java-to-Python Progress Callback)"]
+    end
+
+    subgraph Core ["Forensic Intelligence Engine (Python 3.12)"]
+        IDX["index.py<br/>(process_cdr_data, same_location, crop, search)"]
+        PDF_C["pdf_converter.py<br/>(pdfplumber table normalizer)"]
+        PDF_W["pdf_report_writer.py<br/>(A4 Forensic HTML Generator)"]
+        TAC["tac_db.csv<br/>(25,912 TAC Handset Database)"]
+    end
+
+    subgraph Storage ["Disk-Backed Cache & Output Engine"]
+        CACHE[".cache_engine/<br/>• preview_rows.json<br/>• graph_data.json<br/>• spatial_roadmap.json<br/>• overlap_results.json<br/>• loc_trail.json"]
+        REPORTS["Documents/CDR_Reports/<br/>• Excel Reports (*.xlsx)<br/>• Forensic PDFs (*.pdf)"]
+    end
+
+    subgraph Web_Viz ["WebGL & Leaflet Runtimes"]
+        WV1["WebView: link_analysis.html<br/>(Three.js & 3D Force Graph)"]
+        WV2["WebView: PrintDocumentAdapter<br/>(Android PrintManager to PDF)"]
+        WV3["WebView: loc_trail.html<br/>(Leaflet.js & OpenStreetMap)"]
+    end
+
+    MA -->|Invoke| CH
+    CA -->|Invoke| CH
+    SLA -->|Refine / Export| CH
+    CH --> IDX
+    IDX --> PDF_C
+    IDX --> TAC
+    CH --> PDF_W
+    IDX --> CACHE
+    IDX --> REPORTS
+    MA -->|File Path Intent| LA
+    MA -->|File Path Intent| SLA
+    MA -->|File Path Intent| LTA
+    CA -->|auto_process_file| MA
+    LA --> WV1
+    MA --> WV2
+    LTA --> WV3
+                    </pre>
+                </div>
+            </section>
+
+            <!-- 2. Component Catalog -->
+            <section id="components" class="section-card">
+                <div class="section-header">
+                    <h2>📦 Complete File & Component Catalog</h2>
+                </div>
+                <div class="filter-bar">
+                    <button class="filter-btn active" onclick="filterComponents('all')">All (14)</button>
+                    <button class="filter-btn" onclick="filterComponents('java')">Java Activities (5)</button>
+                    <button class="filter-btn" onclick="filterComponents('python')">Python Modules (4)</button>
+                    <button class="filter-btn" onclick="filterComponents('web')">Web & Assets (3)</button>
+                    <button class="filter-btn" onclick="filterComponents('db')">Databases (2)</button>
+                </div>
+
+                <div class="component-grid" id="componentGrid">
+                    <!-- MainActivity -->
+                    <div class="component-card java" onclick="openModal('main-activity')">
+                        <div class="component-header">
+                            <span class="component-title">MainActivity.java</span>
+                            <span class="component-type">Java Activity</span>
+                        </div>
+                        <p class="component-desc">Application entry point and intelligence dashboard. Manages file picker, Python engine execution, temporal heatmaps, silent background movement correlation, peek preview, and global search.</p>
+                        <div class="component-meta">
+                            <span>Lines: 1,464</span>
+                            <span>SDK 35 • Immersive UI</span>
+                        </div>
+                    </div>
+
+                    <!-- CropActivity -->
+                    <div class="component-card java" onclick="openModal('crop-activity')">
+                        <div class="component-header">
+                            <span class="component-title">CropActivity.java</span>
+                            <span class="component-type">Java Activity</span>
+                        </div>
+                        <p class="component-desc">Dedicated cropping module allowing analysts to filter massive CDRs by datetime window and location substring. Direct handoff back to MainActivity via auto-process intent.</p>
+                        <div class="component-meta">
+                            <span>Lines: 248</span>
+                            <span>Portrait Locked</span>
+                        </div>
+                    </div>
+
+                    <!-- LinkAnalysisActivity -->
+                    <div class="component-card java" onclick="openModal('link-analysis-activity')">
+                        <div class="component-header">
+                            <span class="component-title">LinkAnalysisActivity.java</span>
+                            <span class="component-type">Java Activity</span>
+                        </div>
+                        <p class="component-desc">Dual WebViews hosting 3D WebGL link graphs and SIM-IMEI hardware connections. Populates top 12 BTS area histogram with Google Maps integration and exports multi-page vector PDFs.</p>
+                        <div class="component-meta">
+                            <span>Lines: 585</span>
+                            <span>Sensor Orientation</span>
+                        </div>
+                    </div>
+
+                    <!-- SameLocationActivity -->
+                    <div class="component-card java" onclick="openModal('same-location-activity')">
+                        <div class="component-header">
+                            <span class="component-title">SameLocationActivity.java</span>
+                            <span class="component-type">Java Activity</span>
+                        </div>
+                        <p class="component-desc">Dense landscape correlation table rendering exact sector and address matches. Offers instant in-memory datetime refinement without re-reading source files. Exports to PDF and Excel.</p>
+                        <div class="component-meta">
+                            <span>Lines: 599</span>
+                            <span>Landscape Locked</span>
+                        </div>
+                    </div>
+
+                    <!-- LocTrailActivity -->
+                    <div class="component-card java" onclick="openModal('loc-trail-activity')">
+                        <div class="component-header">
+                            <span class="component-title">LocTrailActivity.java</span>
+                            <span class="component-type">Java Activity</span>
+                        </div>
+                        <p class="component-desc">Full-screen interactive OpenStreetMap trajectory visualizer powered by Leaflet.js. Plots chronological tower pings, connects sequential movements with polylines, and enables path replay.</p>
+                        <div class="component-meta">
+                            <span>Lines: 283</span>
+                            <span>Leaflet + WebView</span>
+                        </div>
+                    </div>
+
+                    <!-- index.py -->
+                    <div class="component-card python" onclick="openModal('index-py')">
+                        <div class="component-header">
+                            <span class="component-title">index.py</span>
+                            <span class="component-type">Python Engine</span>
+                        </div>
+                        <p class="component-desc">Core forensic calculation matrix. Vectorized pandas ingestion, 11-digit phone sanitization, IMEI swapping detection, multi-SIM burner analysis, spatial roadmaps, and co-location overlap detector.</p>
+                        <div class="component-meta">
+                            <span>Lines: 520</span>
+                            <span>Disk-Backed Cache</span>
+                        </div>
+                    </div>
+
+                    <!-- pdf_converter.py -->
+                    <div class="component-card python" onclick="openModal('pdf-converter-py')">
+                        <div class="component-header">
+                            <span class="component-title">pdf_converter.py</span>
+                            <span class="component-type">Python Module</span>
+                        </div>
+                        <p class="component-desc">Robust table parser using pdfplumber to extract tabular call records from PDF files and normalize them into the standard 13-column CDR structure.</p>
+                        <div class="component-meta">
+                            <span>Lines: 86</span>
+                            <span>pdfplumber engine</span>
+                        </div>
+                    </div>
+
+                    <!-- pdf_report_writer.py -->
+                    <div class="component-card python" onclick="openModal('pdf-report-writer-py')">
+                        <div class="component-header">
+                            <span class="component-title">pdf_report_writer.py</span>
+                            <span class="component-type">Python Module</span>
+                        </div>
+                        <p class="component-desc">Generates print-ready HTML for the Android PrintManager, featuring A4 margins, heatmaps, link insights, handset indexes, telemetry logs, and co-location tables.</p>
+                        <div class="component-meta">
+                            <span>Lines: 171</span>
+                            <span>PrintDocumentAdapter</span>
+                        </div>
+                    </div>
+
+                    <!-- for_desktop/index.py -->
+                    <div class="component-card python" onclick="openModal('desktop-index-py')">
+                        <div class="component-header">
+                            <span class="component-title">for_desktop/index.py</span>
+                            <span class="component-type">Python Desktop</span>
+                        </div>
+                        <p class="component-desc">Counterpart engine for desktop environments supporting Calamine Excel reading, OS user cache paths, and hierarchical date/CDR location grouping.</p>
+                        <div class="component-meta">
+                            <span>Lines: 530</span>
+                            <span>Calamine Engine</span>
+                        </div>
+                    </div>
+
+                    <!-- link_analysis.html -->
+                    <div class="component-card web" onclick="openModal('link-analysis-html')">
+                        <div class="component-header">
+                            <span class="component-title">link_analysis.html</span>
+                            <span class="component-type">HTML5 / WebGL</span>
+                        </div>
+                        <p class="component-desc">Interactive 3D Force-Directed Graph application rendered via Three.js. Supports 3D spatial rotation, node profiling overlays, common link highlighting, and SIM-to-IMEI mapping.</p>
+                        <div class="component-meta">
+                            <span>Lines: 242</span>
+                            <span>Three.js + ForceGraph3D</span>
+                        </div>
+                    </div>
+
+                    <!-- loc_trail.html -->
+                    <div class="component-card web" onclick="openModal('loc-trail-html')">
+                        <div class="component-header">
+                            <span class="component-title">loc_trail.html</span>
+                            <span class="component-type">HTML5 / Leaflet</span>
+                        </div>
+                        <p class="component-desc">Dark tactical OpenStreetMap mapping engine using bundled offline Leaflet.js. Plots distinct per-CDR/A-party colored route lines, informative legend with individual [▶ Play] replay buttons, and forensic detail tooltips.</p>
+                        <div class="component-meta">
+                            <span>Lines: 520</span>
+                            <span>Leaflet 1.9.4 Offline</span>
+                        </div>
+                    </div>
+
+                    <!-- tac_db.csv -->
+                    <div class="component-card db" onclick="openModal('tac-db')">
+                        <div class="component-header">
+                            <span class="component-title">tac_db.csv</span>
+                            <span class="component-type">CSV Dataset</span>
+                        </div>
+                        <p class="component-desc">Type Allocation Code lookup table mapping the first 8 digits of an IMEI to manufacturer, model, and hardware classification. Loaded into memory as an O(1) dictionary.</p>
+                        <div class="component-meta">
+                            <span>Rows: 25,912</span>
+                            <span>O(1) Dictionary Cache</span>
+                        </div>
+                    </div>
+
+                    <!-- bts_bd.db -->
+                    <div class="component-card db" onclick="openModal('bts-db')">
+                        <div class="component-header">
+                            <span class="component-title">bts_bd.db</span>
+                            <span class="component-type">SQLite 3</span>
+                        </div>
+                        <p class="component-desc">High-performance offline SQLite database containing cellular towers for Bangladesh (MCC 470). Dual indexed on (lac, cell_id) and (lat, lon) for instant coordinate resolution.</p>
+                        <div class="component-meta">
+                            <span>Format: SQLite 3</span>
+                            <span>B-Tree Indexed</span>
+                        </div>
+                    </div>
+
+                    <!-- download_and_build_bts_db.py -->
+                    <div class="component-card python" onclick="openModal('bts-builder-py')">
+                        <div class="component-header">
+                            <span class="component-title">download_and_build_bts_db.py</span>
+                            <span class="component-type">Python Tool</span>
+                        </div>
+                        <p class="component-desc">Standalone CLI tool to download OpenCellID datasets for MCC 470 or parse official mobile operator BTS spreadsheets (GP, Robi, Banglalink, Teletalk) into SQLite.</p>
+                        <div class="component-meta">
+                            <span>Lines: 147</span>
+                            <span>Chunked Ingestion</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. Workflows -->
+            <section id="workflows" class="section-card">
+                <div class="section-header">
+                    <h2>⚡ Interactive Execution Flowcharts</h2>
+                </div>
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="switchTab('flow-main')">1. Main Processing Flow</button>
+                    <button class="tab-btn" onclick="switchTab('flow-sameloc')">2. Movement & Co-Location</button>
+                    <button class="tab-btn" onclick="switchTab('flow-link')">3. 3D Link Analysis</button>
+                    <button class="tab-btn" onclick="switchTab('flow-crop')">4. CDR Cropping</button>
+                    <button class="tab-btn" onclick="switchTab('flow-pdf')">5. Forensic PDF Print</button>
+                    <button class="tab-btn" onclick="switchTab('flow-search')">6. Global Search</button>
+                    <button class="tab-btn" onclick="switchTab('flow-loctrail')">7. Location Movement Trail</button>
+                </div>
+
+                <!-- Tab 1: Main Flow -->
+                <div id="flow-main" class="tab-pane active">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-blue);">Main Intelligence Extraction Pipeline</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User
+    participant MA as MainActivity
+    participant CH as Chaquopy Runtime
+    participant IDX as index.py
+    participant DISK as Documents/CDR_Reports
+
+    User->>MA: Select Excel/PDF CDR(s)
+    MA->>MA: Copy Uri stream to temp_cdr_*.xlsx in cache
+    User->>MA: Tap "Process"
+    MA->>MA: Optional: Timeline Picker Dialog
+    MA->>CH: callAttr("process_cdr_data", paths, loc, outDir, startTs, endTs)
+    activate CH
+    CH->>IDX: process_cdr_data(...)
+    activate IDX
+    IDX->>IDX: Clean & sanitize phone numbers (last 11 digits)
+    IDX->>IDX: Identify IMEI swappers (>=3 IMEIs) & Multi-SIM burners
+    IDX->>IDX: Calculate Top B-Parties & Common Contacts
+    IDX->>IDX: Calculate Top 5 Night Stays & 24h Hourly Activity
+    IDX->>DISK: Write Excel report (CDR_Analysis_*.xlsx)
+    IDX->>DISK: Cache preview_rows.json & graph_data.json
+    IDX-->>CH: Return resultMap {status, output_path, metrics}
+    deactivate IDX
+    CH-->>MA: Return PyObject Map
+    deactivate CH
+    MA->>MA: populateResults() -> Update UI Cards & Heatmaps
+    MA->>MA: startSilentSameLocationAnalysis() [Background Thread]
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Same Location Flow -->
+                <div id="flow-sameloc" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-green);">Movement & Co-Location Correlation Engine</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+flowchart TD
+    Start["startSilentSameLocationAnalysis()"] --> Check{"Selected Files >= 2?"}
+    Check -- No --> Abort["Toast: Requires 2+ CDRs for correlation"]
+    Check -- Yes --> Spawn["Spawn Background Worker Thread"]
+    Spawn --> PyCall["index.py: same_location_analysis(...)"]
+    
+    PyCall --> Ingest["Ingest all CDRs & parse timestamps"]
+    Ingest --> GroupDate["Group records by calendar date"]
+    
+    GroupDate --> DateLoop{"For each unique date"}
+    DateLoop --> SubjCheck{"Distinct A-parties >= 2?"}
+    SubjCheck -- No --> NextDate["Report progress & Next Date"]
+    SubjCheck -- Yes --> Match1["Match 1: Group by [LAC, Cell, Loc] (Exact Sector Match)"]
+    Match1 --> Match2["Match 2: Group by [Loc] (Same Address Match across Sectors)"]
+    Match2 --> Collect["Collect co-located records with active time windows"]
+    Collect --> NextDate
+    NextDate --> DateLoop
+    
+    DateLoop -- Complete --> SaveCache["Save to overlap_results.json"]
+    SaveCache --> Callback["Update UI: 'Movement Analysis Ready!'"]
+    
+    Callback --> UserClick["User taps 'Do a same location analysis'"]
+    UserClick --> LaunchSLA["Launch SameLocationActivity (Landscape)"]
+    LaunchSLA --> TablePop["Chunked Table Population (40 rows/batch)"]
+    TablePop --> Actions{"User Action"}
+    Actions -->|Date Range Pick| Refine["In-memory timeline filter (refineAnalysis)"]
+    Actions -->|Tap BTS Cell| Maps["Launch Google Maps Navigation Intent"]
+    Actions -->|Tap Export PDF| PDF["Draw landscape vector pages & save PDF"]
+    Actions -->|Tap Export Excel| Excel["Call export_same_location_to_excel"]
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 3: Link Analysis Flow -->
+                <div id="flow-link" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-purple);">3D Force Graph & Hardware Correlation</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+flowchart LR
+    subgraph Ingestion ["1. Data Handshake"]
+        CACHE["graph_data.json"]
+        MA_BTN["MainActivity: btnLinkAnalysis"]
+        TEMP["Write link_graph_data.json in cache"]
+        MA_BTN --> TEMP
+        CACHE --> TEMP
+    end
+
+    subgraph Views ["2. Dual WebViews"]
+        INTENT["Intent -> LinkAnalysisActivity"]
+        WV1["webViewGraph: link_analysis.html"]
+        WV2["webViewSimImei: link_analysis.html"]
+        TEMP --> INTENT --> WV1 & WV2
+    end
+
+    subgraph WebGL ["3. WebGL Engine"]
+        B64["Encode JSON in Base64"]
+        CALL1["evaluateJavascript: window.renderOfflineData(...)"]
+        CALL2["evaluateJavascript: window.renderSimImeiData(...)"]
+        WV1 --> B64 --> CALL1
+        WV2 --> B64 --> CALL2
+        CALL1 --> G1["3D Network Graph<br/>• Blue: A-Party<br/>• Red: Common Contact<br/>• Grey: Contact"]
+        CALL2 --> G2["3D Hardware Graph<br/>• Blue: SIM Number<br/>• Orange: Handset IMEI"]
+    end
+
+    subgraph Native ["4. Native Android Layers"]
+        HISTO["populateAreaHistogram: Top 12 BTS Areas"]
+        IMEI_MAP["populateImeiMapping: Handset Swapping Profiles"]
+        PDF["exportToPdf: Android Canvas PdfDocument"]
+        INTENT --> HISTO & IMEI_MAP & PDF
+    end
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 4: Cropping Flow -->
+                <div id="flow-crop" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-amber);">Targeted CDR Cropping Workflow</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User
+    participant CA as CropActivity
+    participant CH as Chaquopy
+    participant IDX as index.py
+    participant MA as MainActivity
+
+    User->>CA: Stage large CDR files
+    User->>CA: Select Start Date/Time & End Date/Time
+    User->>CA: Optional: Enter location substring (e.g., 'Dhaka')
+    User->>CA: Tap "Process Crop"
+    CA->>CH: callAttr("crop_cdr_data", files, loc, startTs, endTs, outDir)
+    activate CH
+    CH->>IDX: crop_cdr_data(...)
+    IDX->>IDX: Apply datetime boundaries & location substring filter
+    IDX->>IDX: Write Cropped_CDR_<timestamp>.xlsx
+    IDX-->>CH: Return {"status": "success", "output_path": ...}
+    deactivate CH
+    CH-->>CA: Return result
+    CA->>User: Show Dialog: "Want to process after cropping?"
+    alt User clicks "Yes"
+        CA->>MA: Start MainActivity with extra 'auto_process_file: croppedPath'
+        MA->>MA: Automatically stage cropped file & run Python Engine
+    else User clicks "No"
+        CA->>User: Show "Open Cropped Excel" button
+    end
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 5: PDF Print Flow -->
+                <div id="flow-pdf" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-red);">Forensic Case Report Printing</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+flowchart TD
+    Menu["User taps Menu -> Save All As PDF"] --> Check{"Analysis Run & Report Available?"}
+    Check -- No --> Toast["Toast: Please run analysis first"]
+    Check -- Yes --> CheckMulti{"Selected Files > 1?"}
+    
+    CheckMulti -- Yes & Not Ready --> Wait["Wait for Movement Analysis to finish"]
+    CheckMulti -- Ready --> Prepare["Prepare caseName, summary HTML, graph JSON, co-location JSON"]
+    
+    Prepare --> Worker["Background Worker Thread"]
+    Worker --> PyCall["pdf_report_writer.py: generate_case_report_html(...)"]
+    PyCall --> HtmlGen["Generate A4 HTML template with heatmaps & tables"]
+    HtmlGen --> MainThread["runOnUiThread: printHtmlToPdf(finalHtml)"]
+    
+    MainThread --> HiddenWV["Create hidden WebView instance"]
+    HiddenWV --> PageFinish["onPageFinished: createWebPrintJob()"]
+    PageFinish --> PrintMgr["PrintManager.print(jobName, adapter, ISO_A4_600DPI)"]
+    PrintMgr --> NativeDialog["Android System Print & Save-to-PDF Dialog"]
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 6: Global Search Flow -->
+                <div id="flow-search" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-cyan);">Multi-Term Cross-Column CDR Search</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User
+    participant MA as MainActivity
+    participant CH as Chaquopy
+    participant IDX as index.py
+
+    User->>MA: Enter search query (e.g., '01711..., 35201..., Gulshan')
+    User->>MA: Tap Search icon button
+    MA->>CH: callAttr("search_cdr_data", filePaths, query)
+    activate CH
+    CH->>IDX: search_cdr_data(...)
+    activate IDX
+    IDX->>IDX: Ingest staged CDRs
+    IDX->>IDX: Multi-term cross-column mask matching
+    IDX->>IDX: Aggregate hit counts & linked suspect A-parties
+    IDX-->>CH: Return {"status": "success", "summary_html": ...}
+    deactivate IDX
+    CH-->>MA: Return resultMap
+    deactivate CH
+    MA->>MA: showSearchResultsDialog() with scrollable shareable view
+                        </pre>
+                    </div>
+                </div>
+
+                <!-- Tab 7: Location Movement Trail Flow -->
+                <div id="flow-loctrail" class="tab-pane">
+                    <h3 style="font-size: 14px; margin-bottom: 8px; color: var(--accent-green);">Location Movement Trail (OpenStreetMap & Leaflet.js)</h3>
+                    <div class="diagram-container">
+                        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User
+    participant MA as MainActivity
+    participant LTA as LocTrailActivity
+    participant WV as WebView (loc_trail.html)
+    participant LF as Leaflet.js
+    participant OSM as OpenStreetMap Tiles
+
+    User->>MA: Process CDR(s)
+    Note over MA: index.py extracts lat/lon from BTS Address<br/>eg: '... (23.72918, 90.43132)'<br/>Saves to .cache_engine/loc_trail.json
+    MA->>MA: Displays "📍 Loc Trail" button
+    User->>MA: Tap "📍 Loc Trail"
+    MA->>MA: Write loc_trail_data.json to cache
+    MA->>LTA: StartActivity with loc_trail_path extra
+    activate LTA
+    LTA->>WV: loadUrl("file:///android_asset/loc_trail.html")
+    activate WV
+    WV->>LF: Initialize L.map('map')
+    LF->>OSM: Request map tiles (with offline grid fallback)
+    WV-->>LTA: onPageFinished callback
+    LTA->>WV: evaluateJavascript: window.renderLocTrail(Base64_JSON)
+    WV->>LF: Render distinct colored polylines & markers per A-Party CDR
+    WV->>WV: Build Legend describing each line color and A-party with per-party [▶ Play] replay buttons
+    LTA->>LTA: Fade out loading overlay
+    deactivate LTA
+    User->>WV: Tap dot / ping
+    WV->>User: Display Tooltip with Date, Time, Lat/Lon, Tower, Navigate on Google Maps
+    User->>WV: Tap [▶ Play] in legend for a specific A-party
+    WV->>WV: Sequentially animate marker through that A-party's movement trajectory
+                        </pre>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 4. Chaquopy Bridge -->
+            <section id="chaquopy-bridge" class="section-card">
+                <div class="section-header">
+                    <h2>🌉 Chaquopy IPC Bridge Specifications</h2>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13.5px; margin-bottom: 14px;">
+                    All Python invocations are executed via Chaquopy's <code>PyObject.callAttr()</code> from Java worker threads.
+                </p>
+
+                <table class="forensic-table">
+                    <thead>
+                        <tr>
+                            <th>Function Name</th>
+                            <th>Caller Activity</th>
+                            <th>Arguments (Java &rarr; Python)</th>
+                            <th>Return Structure (Python &rarr; Java)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>process_cdr_data</code></td>
+                            <td><code>MainActivity</code></td>
+                            <td><code>String[] paths, String location, String outputDir, String startTs, String endTs</code></td>
+                            <td><code>dict: {status, output_path, roadmap_cache, preview_cache, graph_cache, loc_trail_cache, loc_trail_count, metrics}</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>same_location_analysis</code></td>
+                            <td><code>MainActivity</code></td>
+                            <td><code>String[] paths, String outputDir, String startTs, String endTs, ProgressListener listener</code></td>
+                            <td><code>dict: {status, cache_path, count, summary}</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>crop_cdr_data</code></td>
+                            <td><code>CropActivity</code></td>
+                            <td><code>String[] paths, String location, String startTs, String endTs, String outputDir</code></td>
+                            <td><code>dict: {status, output_path, count}</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>search_cdr_data</code></td>
+                            <td><code>MainActivity</code></td>
+                            <td><code>String[] paths, String searchQuery</code></td>
+                            <td><code>dict: {status, summary_html}</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>export_same_location_to_excel</code></td>
+                            <td><code>SameLocationActivity</code></td>
+                            <td><code>String rawJson, String outputExcelPath</code></td>
+                            <td><code>dict: {status, output_path}</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>generate_case_report_html</code></td>
+                            <td><code>MainActivity</code></td>
+                            <td><code>String caseName, String summaryHtml, String graphJson, String sameLocJson, ..., String spatialSum</code></td>
+                            <td><code>String: complete A4 HTML document string</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 5. Data Schemas -->
+            <section id="data-schemas" class="section-card">
+                <div class="section-header">
+                    <h2>📊 Data Contracts & Disk-Backed Caches</h2>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13.5px; margin-bottom: 12px;">
+                    Heavy intermediate data structures are cached under <code>Documents/CDR_Reports/.cache_engine/</code> to prevent RAM bloat on Android mobile devices.
+                </p>
+
+                <h3 style="font-size: 14px; margin-top: 16px; margin-bottom: 8px; color: var(--accent-amber);">13-Column Standardized CDR Format</h3>
+                <table class="forensic-table">
+                    <thead>
+                        <tr>
+                            <th>Col</th>
+                            <th>Name</th>
+                            <th>Standard Purpose</th>
+                            <th>Sanitization Rule</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>0 (A)</td><td><code>Start</code></td><td>Call/Event timestamp</td><td><code>pd.to_datetime(errors='coerce')</code></td></tr>
+                        <tr><td>1 (B)</td><td><code>B_Empty</code></td><td>Reserved empty column</td><td>Filled with <code>--Empty--</code></td></tr>
+                        <tr><td>2 (C)</td><td><code>Party A</code></td><td>Subscriber / Caller number</td><td>Regex stripped of <code>+88</code>/non-digits, sliced to last 11 digits</td></tr>
+                        <tr><td>3 (D)</td><td><code>Party B</code></td><td>Recipient / Called number</td><td>Regex stripped of <code>+88</code>/non-digits, sliced to last 11 digits</td></tr>
+                        <tr><td>4 (E)</td><td><code>Call Duration</code></td><td>Duration in seconds</td><td>Numeric conversion, missing filled with 0</td></tr>
+                        <tr><td>5 (F)</td><td><code>Usage Type</code></td><td>Voice / SMS / Data tag</td><td>Preserved</td></tr>
+                        <tr><td>6 (G)</td><td><code>Call Type</code></td><td>Incoming / Outgoing</td><td>Preserved</td></tr>
+                        <tr><td>7 (H)</td><td><code>Lac ID</code></td><td>Location Area Code (LAC)</td><td>Decimals removed, replaced with <code>--Empty--</code> if missing</td></tr>
+                        <tr><td>8 (I)</td><td><code>Cell ID</code></td><td>Cellular Sector Identifier</td><td>Decimals removed, replaced with <code>--Empty--</code> if missing</td></tr>
+                        <tr><td>9 (J)</td><td><code>IMEI</code></td><td>15-digit Handset Identifier</td><td>Looked up against <code>tac_db.csv</code></td></tr>
+                        <tr><td>10 (K)</td><td><code>K_Empty</code></td><td>Reserved empty column</td><td>Filled with <code>--Empty--</code></td></tr>
+                        <tr><td>11 (L)</td><td><code>Bts Address</code></td><td>Tower Physical Location</td><td>Whitespace trimmed, <code>--Empty--</code> fallback; regex extraction of embedded coordinates: <code>(lat, lon)</code></td></tr>
+                        <tr><td>12 (M)</td><td><code>M_Empty</code></td><td>Operator metadata</td><td>Reserved</td></tr>
+                    </tbody>
+                </table>
+
+                <h3 style="font-size: 14px; margin-top: 18px; margin-bottom: 8px; color: var(--accent-cyan);">Disk Cache Manifest (.cache_engine/)</h3>
+                <table class="forensic-table">
+                    <thead>
+                        <tr>
+                            <th>Cache File</th>
+                            <th>Produced By</th>
+                            <th>Consumed By</th>
+                            <th>Payload Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>preview_rows.json</code></td>
+                            <td><code>index.py:process_cdr_data</code></td>
+                            <td><code>MainActivity:showPeekDialog</code></td>
+                            <td>First 500 normalized CDR rows for rapid in-app grid preview</td>
+                        </tr>
+                        <tr>
+                            <td><code>graph_data.json</code></td>
+                            <td><code>index.py:process_cdr_data</code></td>
+                            <td><code>LinkAnalysisActivity</code></td>
+                            <td>Nodes and links for 3D WebGL network and SIM-IMEI hardware graphs</td>
+                        </tr>
+                        <tr>
+                            <td><code>spatial_roadmap.json</code></td>
+                            <td><code>index.py:process_cdr_data</code></td>
+                            <td><code>MainActivity</code></td>
+                            <td>Chronological tower stops and night stays for movement profile</td>
+                        </tr>
+                        <tr>
+                            <td><code>overlap_results.json</code></td>
+                            <td><code>index.py:same_location_analysis</code></td>
+                            <td><code>SameLocationActivity</code></td>
+                            <td>Cross-target co-location events matched by exact sector & address</td>
+                        </tr>
+                        <tr>
+                            <td><code>loc_trail.json</code></td>
+                            <td><code>index.py:process_cdr_data</code></td>
+                            <td><code>LocTrailActivity</code></td>
+                            <td>Chronological (lat, lon) coordinates extracted from BTS addresses for OpenStreetMap</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 6. BTS Subsystem -->
+            <section id="bts-subsystem" class="section-card">
+                <div class="section-header">
+                    <h2>🗼 Offline BTS Database Subsystem</h2>
+                </div>
+                <p style="color: var(--text-secondary); font-size: 13.5px; margin-bottom: 12px;">
+                    Located in <code>bts_database/</code>, this subsystem builds and manages the offline SQLite tower database for Bangladesh (MCC 470).
+                </p>
+
+                <table class="forensic-table">
+                    <thead>
+                        <tr>
+                            <th>Column</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>radio</code></td><td>TEXT</td><td>Cellular Radio standard (GSM, UMTS, LTE, NR)</td></tr>
+                        <tr><td><code>mcc</code></td><td>INTEGER</td><td>Mobile Country Code (470 for Bangladesh)</td></tr>
+                        <tr><td><code>mnc</code></td><td>INTEGER</td><td>Mobile Network Code (GP: 01, Robi: 02, Banglalink: 03, Teletalk: 04)</td></tr>
+                        <tr><td><code>lac</code></td><td>INTEGER</td><td>Location Area Code [INDEXED with cell_id]</td></tr>
+                        <tr><td><code>cell_id</code></td><td>INTEGER</td><td>Cellular Tower Sector Identifier [INDEXED]</td></tr>
+                        <tr><td><code>unit</code></td><td>INTEGER</td><td>Antenna unit number</td></tr>
+                        <tr><td><code>lon</code></td><td>REAL</td><td>Tower Longitude [INDEXED with lat]</td></tr>
+                        <tr><td><code>lat</code></td><td>REAL</td><td>Tower Latitude [INDEXED]</td></tr>
+                        <tr><td><code>range</code></td><td>INTEGER</td><td>Estimated tower broadcast radius (meters)</td></tr>
+                        <tr><td><code>samples</code></td><td>INTEGER</td><td>Measurement sample count</td></tr>
+                        <tr><td><code>address</code></td><td>TEXT</td><td>Physical tower address / operator site name</td></tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <!-- 7. Invariants -->
+            <section id="invariants" class="section-card">
+                <div class="section-header">
+                    <h2>🛡️ Core Engineering Invariants</h2>
+                </div>
+                <ul style="color: var(--text-secondary); font-size: 13px; line-height: 1.8; margin-left: 20px;">
+                    <li><strong>Disk-Backed Cache Rule:</strong> Never store heavy DataFrames or JSON payloads in Java static fields or Intent bundles. Always write to <code>Documents/CDR_Reports/.cache_engine/</code> and pass file paths across Activities to prevent Android TransactionTooLargeException.</li>
+                    <li><strong>Phone Number Sanitization Invariant:</strong> Phone numbers must always undergo <code>str.replace(r'^\+?88|\D', '', regex=True).str[-11:]</code> to normalize variants (+88017..., 88017..., 017...) into exact 11-digit keys.</li>
+                    <li><strong>Async Chaquopy Rule:</strong> All calls to <code>pyModule.callAttr(...)</code> must execute inside a background worker thread (<code>new Thread(...)</code>) to keep the Android Main Looper 60fps responsive.</li>
+                    <li><strong>FileProvider Sharing Rule:</strong> All files opened in external viewers (Excel, PDF) must be resolved through <code>FileProvider.getUriForFile()</code> with <code>FLAG_GRANT_READ_URI_PERMISSION</code>.</li>
+                    <li><strong>Inactivity Timeout Rule:</strong> Sessions expire after 30 minutes of idle time (<code>INACTIVITY_TIMEOUT = 30 * 60 * 1000</code>) to maintain security hygiene and purge transient memory.</li>
+                </ul>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modal for Component Details -->
+    <div class="modal" id="componentModal" onclick="closeModalOnBackdrop(event)">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+            <div id="modalBody"></div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'dark',
+            themeVariables: {
+                darkMode: true,
+                background: '#0d131f',
+                primaryColor: '#1e293b',
+                primaryTextColor: '#f8fafc',
+                primaryBorderColor: '#3b82f6',
+                lineColor: '#60a5fa',
+                secondaryColor: '#1e1b4b',
+                tertiaryColor: '#0f172a'
+            }
+        });
+
+        function scrollToSection(id) {
+            document.querySelectorAll('.nav-link').forEach(link => link.classList.remove('active'));
+            event.target.classList.add('active');
+            const target = document.getElementById(id);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        function filterComponents(type) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            const cards = document.querySelectorAll('.component-card');
+            cards.forEach(card => {
+                if (type === 'all' || card.classList.contains(type)) {
+                    card.style.display = 'block';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            const targetPane = document.getElementById(tabId);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+        }
+
+        const componentDetails = {
+            'main-activity': {
+                title: 'MainActivity.java',
+                type: 'Java Activity (1,464 lines)',
+                desc: 'Primary dashboard controller coordinating file staging, Python engine execution, result formatting, temporal heatmaps, silent background correlation, and global cross-column search.',
+                methods: [
+                    'onCreate(Bundle): Initializes fullscreen, Chaquopy Python runtime, clears old cache.',
+                    'runPythonEngine(): Invokes index.py:process_cdr_data on background thread.',
+                    'startSilentSameLocationAnalysis(): Triggers background movement correlation with ProgressListener.',
+                    'populateResults(Map): Extracts metrics, renders collapsible night-stay accordion and 24h heatmaps.',
+                    'performCdrSearch(String): Calls index.py:search_cdr_data for multi-term search.',
+                    'showPeekDialog(): Renders preview_rows.json in 50-row chunks in dual-axis scrollable table.',
+                    'generatePdfReport(): Invokes pdf_report_writer.py and dispatches to Android PrintManager.'
+                ],
+                inputs: 'Staged Excel/PDF CDR files from storage, optional timeline & location filters.',
+                outputs: 'Consolidated Excel report, disk-backed cache JSONs, interactive dashboard.'
+            },
+            'crop-activity': {
+                title: 'CropActivity.java',
+                type: 'Java Activity (248 lines)',
+                desc: 'Dedicated filtering activity designed to trim massive CDR sheets before analysis.',
+                methods: [
+                    'showDatePicker() / showTimePicker(): Configures start and end Calendar bounds.',
+                    'runCropEngine(): Invokes index.py:crop_cdr_data on background thread.',
+                    'showProcessDialog(): Offers instant handoff to MainActivity via auto_process_file extra.'
+                ],
+                inputs: 'Raw Excel/PDF CDRs, start/end date-times, location substring keywords.',
+                outputs: 'Cropped_CDR_<timestamp>.xlsx in Documents/CDR_Reports/.'
+            },
+            'link-analysis-activity': {
+                title: 'LinkAnalysisActivity.java',
+                type: 'Java Activity (585 lines)',
+                desc: 'Visualizes multi-party relationship links and SIM-to-IMEI associations using WebGL WebViews.',
+                methods: [
+                    'setupWebView(): Loads link_analysis.html, injects Base64 JSON, evaluates render functions.',
+                    'populateAreaHistogram(): Extracts top 12 BTS areas and links to Google Maps navigation intents.',
+                    'populateImeiMapping(): Displays subscribers with multiple IMEI handset profiles.',
+                    'exportToPdf(): Manually draws vector pages on Android Canvas PdfDocument.'
+                ],
+                inputs: 'Path to link_graph_data.json passed via Intent extra.',
+                outputs: 'Interactive 3D Force Graph, Google Maps navigation, Link_Analysis_*.pdf.'
+            },
+            'same-location-activity': {
+                title: 'SameLocationActivity.java',
+                type: 'Java Activity (599 lines)',
+                desc: 'Landscape grid presenting exact sector matches and address overlaps across multiple targets.',
+                methods: [
+                    'startAsyncPopulation(): Loads overlap JSON in chunks of 40 rows into TableLayout.',
+                    'refineAnalysis(): In-memory timestamp filtering of existing JSON without disk re-reads.',
+                    'exportToPdf(): Draws landscape A4 vector pages with intelligent text wrapping.',
+                    'exportToExcel(): Invokes index.py:export_same_location_to_excel.'
+                ],
+                inputs: 'Path to overlap_results.json and source file paths.',
+                outputs: 'Co-location correlation grid, Google Maps navigation, PDF & Excel exports.'
+            },
+            'loc-trail-activity': {
+                title: 'LocTrailActivity.java',
+                type: 'Java Activity (283 lines)',
+                desc: 'Full-screen OpenStreetMap spatial trajectory visualizer. Loads loc_trail.html in a WebView, evaluates chronological location pings via Base64 JSON injection, handles map pan/zoom gesture interception, and dispatches Google Maps intents.',
+                methods: [
+                    'onCreate(Bundle): Initializes dark fullscreen theme, parses loc_trail_path extra, sets up 30-min session timer.',
+                    'setupWebViewTouchHandling(): Uses OnTouchListener with requestDisallowInterceptTouchEvent to prevent scroll conflicts.',
+                    'renderLocTrailData(): Reads loc_trail_data.json, Base64 encodes, and invokes window.renderLocTrail(b64).',
+                    'onPageFinished(): Injects data into Leaflet.js runtime and smoothly fades out loading overlay.'
+                ],
+                inputs: 'Path to loc_trail_data.json passed via Intent extra.',
+                outputs: 'Interactive OpenStreetMap route display, sequential replay animation, Google Maps navigation.'
+            },
+            'index-py': {
+                title: 'index.py',
+                type: 'Python Forensic Core (520 lines)',
+                desc: 'Vectorized analytics engine responsible for CDR parsing, cleaning, metrics, and disk caching.',
+                methods: [
+                    'lookup_imei(imei): O(1) TAC dictionary lookup for handset manufacturer and model.',
+                    'process_cdr_data(...): Full CDR pipeline, Excel report generation, disk cache creation.',
+                    'same_location_analysis(...): Date-grouped sector and address overlap detector with progress callback.',
+                    'crop_cdr_data(...): Datetime and location keyword filter exporting cropped Excel.',
+                    'search_cdr_data(...): Multi-term cross-column keyword scanner returning HTML summary.',
+                    'export_same_location_to_excel(...): Formatted Co-Location Matrix workbook generator.'
+                ],
+                inputs: 'File paths, output directory, filter timestamps, location strings.',
+                outputs: 'Status dicts, Excel reports, .cache_engine/ JSON files.'
+            },
+            'pdf-converter-py': {
+                title: 'pdf_converter.py',
+                type: 'Python Table Parser (86 lines)',
+                desc: 'Transforms non-standard PDF CDR tables into uniform 13-column DataFrames.',
+                methods: [
+                    'pdf_to_dataframe(pdf_path): Extracts tables via pdfplumber, eliminates headers, pads columns to 13.'
+                ],
+                inputs: 'PDF file path.',
+                outputs: 'Normalized pandas DataFrame with standard columns A to M.'
+            },
+            'pdf-report-writer-py': {
+                title: 'pdf_report_writer.py',
+                type: 'Python HTML Generator (171 lines)',
+                desc: 'Builds publication-quality forensic HTML reports for Android PrintManager.',
+                methods: [
+                    'generate_case_report_html(...): Constructs complete A4 CSS styled document with heatmaps and tables.'
+                ],
+                inputs: 'Case name, summary HTML, graph JSON, co-location JSON, CDR source names.',
+                outputs: 'Complete HTML string ready for WebView.createPrintDocumentAdapter().'
+            },
+            'desktop-index-py': {
+                title: 'for_desktop/index.py',
+                type: 'Python Desktop Variant (530 lines)',
+                desc: 'Desktop counterpart equipped with Calamine engine and OS user directory caching.',
+                methods: [
+                    'group_location_by_date_by_CDR(...): Hierarchical date and subscriber movement grouping.'
+                ],
+                inputs: 'Local filesystem CDR paths.',
+                outputs: 'Desktop cached JSON structures and reports.'
+            },
+            'link-analysis-html': {
+                title: 'link_analysis.html',
+                type: 'HTML5 / WebGL (242 lines)',
+                desc: '3D Force-Directed Graph application using Three.js and ForceGraph3D.',
+                methods: [
+                    'window.renderOfflineData(json): Renders A-party hubs, common contacts, and individual links.',
+                    'window.renderSimImeiData(json): Renders bipartite SIM-to-IMEI hardware graph.',
+                    'showProfile(nodeId, nodeType): Displays floating metadata card with Google Maps link.'
+                ],
+                inputs: 'JSON strings decoded from Base64 via Java evaluation.',
+                outputs: 'Interactive 3D WebGL visualization.'
+            },
+            'loc-trail-html': {
+                title: 'loc_trail.html',
+                type: 'HTML5 / Leaflet (360 lines)',
+                desc: 'Self-contained offline Leaflet mapping application using local leaflet.js and leaflet.css assets. Renders dark tactical OpenStreetMap tiles, distinct per-CDR/A-party colored lines and markers, an interactive color-coded legend with individual [▶ Play] replay buttons, and rich forensic tooltips.',
+                methods: [
+                    'window.renderLocTrail(base64Payload): Decodes JSON payload, extracts distinct A-parties, renders colored polylines and dots per CDR.',
+                    'buildLegend(): Constructs dynamic legend describing each A-party with its colored line swatch and dedicated Play/Pause replay button.',
+                    'togglePartyReplay(ap) / stepPartyAnimation(ap): Iteratively animates a glowing marker along the chronological trajectory of that specific A-party.'
+                ],
+                inputs: 'Base64 encoded JSON array of geographic coordinate objects.',
+                outputs: 'Interactive Leaflet vector layer with per-party colored polylines, start/end markers, and legend controls.'
+            },
+            'tac-db': {
+                title: 'tac_db.csv',
+                type: 'CSV Dataset (25,912 records)',
+                desc: 'Type Allocation Code database mapping 8-digit TAC prefixes to handset models.',
+                methods: ['Loaded on first call into global TAC_DICT in index.py.'],
+                inputs: 'str(imei)[:8]',
+                outputs: 'Manufacturer + Model string.'
+            },
+            'bts-db': {
+                title: 'bts_bd.db',
+                type: 'SQLite Database',
+                desc: 'Bangladesh cell tower repository indexed on (lac, cell_id) and (lat, lon).',
+                methods: ['SELECT * FROM towers WHERE lac = ? AND cell_id = ?'],
+                inputs: 'LAC and Cell ID integers.',
+                outputs: 'Latitude, longitude, range, and physical address.'
+            },
+            'bts-builder-py': {
+                title: 'download_and_build_bts_db.py',
+                type: 'Python CLI Tool (147 lines)',
+                desc: 'Automates downloading OpenCellID datasets or ingesting operator master sheets into SQLite.',
+                methods: [
+                    'download_opencellid_bd(token, output): Downloads 470.csv.gz from Unwired Labs.',
+                    'ingest_opencellid_csv(path, conn): Chunked ingestion of OpenCellID rows.',
+                    'ingest_operator_excel(path, conn): Ingests GP/Robi/Banglalink/Teletalk BTS lists.'
+                ],
+                inputs: 'OpenCellID token or local operator Excel file.',
+                outputs: 'Indexed bts_bd.db SQLite database.'
+            }
+        };
+
+        function openModal(id) {
+            const data = componentDetails[id];
+            if (!data) return;
+
+            let methodsHtml = '';
+            if (data.methods && data.methods.length > 0) {
+                methodsHtml = '<h4 style="color:#60a5fa; margin: 16px 0 8px;">Key Methods / Functions:</h4><ul style="margin-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.7;">' +
+                    data.methods.map(m => `<li><code>${m.split(':')[0]}</code>: ${m.split(':').slice(1).join(':')}</li>`).join('') +
+                    '</ul>';
+            }
+
+            document.getElementById('modalBody').innerHTML = `
+                <h2 style="color: #fff; font-size: 20px; margin-bottom: 4px;">${data.title}</h2>
+                <span class="badge" style="margin-bottom: 14px;">${data.type}</span>
+                <p style="color: var(--text-secondary); font-size: 13.5px; margin-top: 10px; line-height: 1.6;">${data.desc}</p>
+                ${methodsHtml}
+                <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border-color); font-size: 12.5px;">
+                    <div style="margin-bottom: 6px;"><strong style="color: #fff;">Inputs:</strong> <span style="color: var(--text-secondary);">${data.inputs}</span></div>
+                    <div><strong style="color: #fff;">Outputs:</strong> <span style="color: var(--text-secondary);">${data.outputs}</span></div>
+                </div>
+            `;
+            document.getElementById('componentModal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('componentModal').style.display = 'none';
+        }
+
+        function closeModalOnBackdrop(e) {
+            if (e.target.id === 'componentModal') {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>

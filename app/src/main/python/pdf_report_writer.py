@@ -131,7 +131,6 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             @page {{ size: A4; margin: 1.2cm 1.0cm 1.2cm 1.0cm; }}
             body {{ font-family: 'Helvetica', 'Arial', sans-serif; font-size: 8.5pt; color: #111; line-height: 1.35; margin: 0; }}
             .fixed-header {{ position: fixed; top: -0.85cm; left: 0; right: 0; text-align: center; font-weight: bold; border-bottom: 0.5pt solid #000; padding-bottom: 2pt; font-size: 8pt; }}
-            .fixed-footer {{ position: fixed; bottom: -0.85cm; left: 0; right: 0; text-align: center; font-weight: bold; border-top: 0.5pt solid #000; padding-top: 2pt; font-size: 7.5pt; }}
             .title-box {{ text-align: center; border-bottom: 2pt solid #000; padding-bottom: 8pt; margin-bottom: 10pt; }}
             .title-box h1 {{ font-size: 18pt; margin: 0; letter-spacing: 0.5pt; }}
             .case-badge {{ font-size: 11pt; font-weight: bold; margin-top: 4pt; color: #333; }}
@@ -152,7 +151,6 @@ def generate_case_report_html(case_name, summary_html, graph_json_str, same_loc_
             h3 {{ font-size: 9.5pt; margin-top: 10pt; text-transform: uppercase; color: #222; }}
         </style></head><body>
             <div class="fixed-header">SECRET // FORENSIC CDR INTELLIGENCE BRIEF</div>
-            <div class="fixed-footer">CLASSIFICATION: SECRET // AUTHORIZED USE ONLY // GENERATED: {time.strftime('%Y-%m-%d')}</div>
             <div class="title-box">
                 <h1>📡 TELEMETRY INTELLIGENCE BRIEF</h1>
                 <div class="case-badge">CASE: {str(case_name).upper()}</div>

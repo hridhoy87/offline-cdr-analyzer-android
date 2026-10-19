@@ -150,16 +150,32 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:text="@string/summary_header_title"
-                    android:textSize="18sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="end"
                     android:textColor="?attr/primaryTextColor"/>
+
+                <Button
+                    android:id="@+id/btnLocTrail"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="📍 Loc Trail"
+                    android:textSize="11sp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:layout_marginEnd="6dp"
+                    android:backgroundTint="#008080"
+                    android:textColor="#FFFFFF"
+                    android:textAllCaps="false"
+                    android:visibility="gone"/>
 
                 <Button
                     android:id="@+id/btnLinkAnalysis"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
                     android:text="🔗 Link Analysis"
-                    android:textSize="10sp"
+                    android:textSize="11sp"
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp"
                     android:backgroundTint="#3182CE"
