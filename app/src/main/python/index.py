@@ -110,8 +110,22 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                 if path.lower().endswith('.pdf'):
                     df = pdf_converter.pdf_to_dataframe(path)
                 else:
-                    df = pd.read_excel(path, engine="openpyxl", dtype=str)
+                    try:
+                        df = pd.read_excel(path, engine="openpyxl", dtype=str)
+                    except Exception:
+                        df = pd.read_excel(path, dtype=str)
                 
+                # If first row was a banner, scan rows 1..4 for 12+ columns
+                if not df.empty and len(df.columns) < 12:
+                    for h in range(1, 5):
+                        try:
+                            df_try = pd.read_excel(path, header=h, dtype=str)
+                            if not df_try.empty and len(df_try.columns) >= 12:
+                                df = df_try
+                                break
+                        except Exception:
+                            pass
+
                 if not df.empty and len(df.columns) >= 12:
                     all_dfs.append(df)
             except Exception:
@@ -131,6 +145,10 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         combined_df[col_C] = combined_df[col_C].astype(str).str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
         combined_df[col_D] = combined_df[col_D].astype(str).str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
         
+        # Restore leading 0 if Excel stripped it as integer (e.g. 17... -> 017...)
+        combined_df[col_C] = combined_df[col_C].apply(lambda x: '0' + x if len(str(x)) == 10 and str(x).startswith('1') else str(x))
+        combined_df[col_D] = combined_df[col_D].apply(lambda x: '0' + x if len(str(x)) == 10 and str(x).startswith('1') else str(x))
+        
         for col in [col_H, col_I, col_L, col_J]: 
             combined_df[col] = combined_df[col].astype(str).str.strip().replace(['nan', 'NaN', 'None', ''], '--Empty--')
             if col in [col_H, col_I, col_J]:
@@ -147,7 +165,7 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             return {"status": "error", "message": "No data in selected timeline."}
 
         # 2. Hardware Analysis
-        unique_a_parties = combined_df[combined_df[col_C].str.len() == 11][col_C].unique().tolist()
+        unique_a_parties = [str(p) for p in combined_df[col_C].unique().tolist() if str(p).strip() not in ['', '--Empty--', 'nan', 'NaN', 'None'] and len(str(p).strip()) >= 5]
         summary_a_parties_str = ", ".join(unique_a_parties)
 
         raw_imei_clean = combined_df[(combined_df[col_J] != '--Empty--') & (combined_df[col_C].str.len() == 11)]
@@ -301,16 +319,17 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
 
         # 9. Location Trail Extraction (Lat/Lon in BTS Address)
         loc_trail_list = []
-        coord_pattern = re.compile(r'\(\s*([+-]?\d+(?:\.\d+)?)\s*[,;\s]\s*([+-]?\d+(?:\.\d+)?)\s*\)')
+        coord_pattern = re.compile(r'[\(\[\{]\s*([+-]?\d+(?:\.\d+)?)\s*[,;\s]\s*([+-]?\d+(?:\.\d+)?)\s*[\)\]\}]')
+        bd_coord_fallback = re.compile(r'\b(2[0-7]\.\d{3,8})\s*[,;\s]\s*(8[89]\.\d{3,8}|9[0-3]\.\d{3,8})\b')
         chrono_df = combined_df.sort_values(by='_parsed_dt').reset_index(drop=True)
 
         for _, row in chrono_df.iterrows():
             loc_val = str(row[col_L]) if pd.notna(row[col_L]) else ''
-            match = coord_pattern.search(loc_val)
+            match = coord_pattern.search(loc_val) or bd_coord_fallback.search(loc_val)
             if not match:
                 for col_name in chrono_df.columns:
                     val_str = str(row[col_name]) if pd.notna(row[col_name]) else ''
-                    m = coord_pattern.search(val_str)
+                    m = coord_pattern.search(val_str) or bd_coord_fallback.search(val_str)
                     if m:
                         loc_val = val_str
                         match = m
@@ -333,7 +352,8 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     date_str = dt_val.strftime('%d %b %Y') if pd.notna(dt_val) else ''
                     time_str = dt_val.strftime('%H:%M:%S') if pd.notna(dt_val) else ''
 
-                    clean_addr = coord_pattern.sub('', loc_val).strip().rstrip(',').strip()
+                    clean_addr = coord_pattern.sub('', loc_val)
+                    clean_addr = bd_coord_fallback.sub('', clean_addr).strip().rstrip(',').strip()
                     if not clean_addr:
                         clean_addr = loc_val
 

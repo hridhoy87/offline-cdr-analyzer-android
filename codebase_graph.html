@@ -684,9 +684,9 @@ flowchart TB
                             <span class="component-title">loc_trail.html</span>
                             <span class="component-type">HTML5 / Leaflet</span>
                         </div>
-                        <p class="component-desc">Dark tactical OpenStreetMap mapping engine using bundled offline Leaflet.js. Plots static per-CDR colored route lines on load, animates progressive polyline drawing and auto-centers area on Play, and renders constrained non-overshooting popup cards with Bp, Incident, LacID, and Cell ID.</p>
+                        <p class="component-desc">Dark tactical OpenStreetMap mapping engine using bundled offline Leaflet.js. Plots static per-CDR colored route lines on load with 24-color vibrant palette, provides vertically scrollable touch-decoupled legend with active counter and collapse/expand toggle, animates progressive polyline drawing and auto-centers area on Play, and renders constrained non-overshooting popup cards with Bp, Incident, LacID, and Cell ID.</p>
                         <div class="component-meta">
-                            <span>Lines: 520+</span>
+                            <span>Lines: 580+</span>
                             <span>Leaflet 1.9.4 Offline</span>
                         </div>
                     </div>
@@ -982,8 +982,8 @@ sequenceDiagram
     LF->>OSM: Request map tiles (with offline grid fallback)
     WV-->>LTA: onPageFinished callback
     LTA->>WV: evaluateJavascript: window.renderLocTrail(Base64_JSON)
-    WV->>LF: Render distinct colored polylines & markers per A-Party CDR
-    WV->>WV: Build Legend describing each line color and A-party with per-party [▶ Play] replay buttons
+    WV->>LF: Render distinct colored polylines & markers per A-Party CDR (24-color vibrant palette)
+    WV->>WV: Build Scrollable Legend (touch-decoupled, collapse toggle, active counter) with per-party [▶ Play] replay buttons
     LTA->>LTA: Fade out loading overlay
     deactivate LTA
     User->>WV: Tap dot / ping
@@ -1369,13 +1369,15 @@ sequenceDiagram
             },
             'loc-trail-html': {
                 title: 'loc_trail.html',
-                type: 'HTML5 / Leaflet (520+ lines)',
-                desc: 'Self-contained offline Leaflet mapping application using local leaflet.js and leaflet.css assets. Renders dark tactical OpenStreetMap tiles, distinct per-CDR/A-party colored lines and markers, an interactive color-coded legend with individual [▶ Play] replay buttons, and rich forensic tooltips.',
+                type: 'HTML5 / Leaflet (580+ lines)',
+                desc: 'Self-contained offline Leaflet mapping application using local leaflet.js and leaflet.css assets. Renders dark tactical OpenStreetMap tiles, distinct 24-color palette for 19+ concurrent CDRs, vertically scrollable legend decoupled from map touch events with collapse toggle and active counter badge, per-party progressive polyline animation with traveling marker and live tooltip, and responsive non-overshooting forensic popup cards.',
                 methods: [
                     'window.renderLocTrail(base64Payload): Decodes JSON payload, extracts distinct A-parties, renders static colored polylines and dots per CDR on initial load.',
-                    'buildLegend(): Constructs dynamic legend describing each A-party with its colored line swatch and dedicated Play/Pause replay button.',
+                    'buildLegend(): Constructs dynamic vertically scrollable legend describing each A-party with swatch, target badge, and dedicated Play/Pause replay button.',
+                    'bindLegendTouchEvents(): Decouples legend touch and wheel events from Leaflet using L.DomEvent.disableScrollPropagation to prevent map dragging.',
+                    'toggleLegendCollapse(): Toggles collapse/expand of legend list for maximum map viewport clearance.',
                     'togglePartyReplay(ap) / startPartyAnimation(ap): Focuses area, dims static line, and progressively draws animated polyline with traveling marker and live tooltip.',
-                    'marker.bindPopup(): Displays responsive constrained popup card with Bp, Incident, LacID, Cell ID, BTS address, and Google Maps button without overshooting screen.'
+                    'marker.bindPopup(): Displays responsive constrained popup card (60-62vw) with Bp, Incident, LacID, Cell ID, BTS address, and Google Maps button without overshooting screen.'
                 ],
                 inputs: 'Base64 encoded JSON array of geographic coordinate objects.',
                 outputs: 'Interactive Leaflet vector layer with per-party colored polylines, start/end markers, and legend controls.'

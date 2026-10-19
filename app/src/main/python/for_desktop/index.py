@@ -146,22 +146,20 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
         raw_c_values = combined_df[col_C].astype(str)
         raw_d_values = combined_df[col_D].astype(str)
 
-        combined_df[col_C] = raw_c_values.str.replace(r'^\+?88|\D', '', regex=True)
-        combined_df[col_D] = raw_d_values.str.replace(r'^\+?88|\D', '', regex=True)
+        combined_df[col_C] = raw_c_values.str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
+        combined_df[col_D] = raw_d_values.str.replace(r'^\+?88|\D', '', regex=True).str[-11:]
+        
+        # Restore leading 0 if Excel stripped it as integer (e.g. 17... -> 017...)
+        combined_df[col_C] = combined_df[col_C].apply(lambda x: '0' + x if len(str(x)) == 10 and str(x).startswith('1') else str(x))
+        combined_df[col_D] = combined_df[col_D].apply(lambda x: '0' + x if len(str(x)) == 10 and str(x).startswith('1') else str(x))
         
         for col in [col_B, col_F, col_G, col_H, col_I, col_K, col_L, col_J]: 
             combined_df[col] = combined_df[col].astype(str).str.strip().replace(['nan', 'NaN', 'None', ''], '--Empty--')
         for col in [col_H, col_I, col_J]: 
             combined_df[col] = combined_df[col].apply(lambda x: str(x).split('.')[0] if x != '--Empty--' else '--Empty--')
 
-        mask_c_valid = combined_df[col_C].str.len() == 11
-        mask_d_valid = combined_df[col_D].str.len() == 11
-
-        combined_df.loc[~mask_c_valid, col_C] = raw_c_values[~mask_c_valid] + "--[not a mobile number]"
-        combined_df.loc[~mask_d_valid, col_D] = raw_d_values[~mask_d_valid] + "--[not a mobile number]"
-
         combined_df['_parsed_dt'] = pd.to_datetime(combined_df[col_A], errors='coerce')
-        unique_a_parties = combined_df.loc[mask_c_valid, col_C].unique().tolist()
+        unique_a_parties = [str(p) for p in combined_df[col_C].unique().tolist() if str(p).strip() not in ['', '--Empty--', 'nan', 'NaN', 'None'] and len(str(p).strip()) >= 5]
         summary_a_parties_str = ", ".join(unique_a_parties)
 
         if progress_callback: progress_callback(55, "Scanning hardware registries...")
@@ -331,16 +329,17 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
 
         # 💡 Location Trail Extraction
         loc_trail_list = []
-        coord_pattern = re.compile(r'\(\s*([+-]?\d+(?:\.\d+)?)\s*[,;\s]\s*([+-]?\d+(?:\.\d+)?)\s*\)')
+        coord_pattern = re.compile(r'[\(\[\{]\s*([+-]?\d+(?:\.\d+)?)\s*[,;\s]\s*([+-]?\d+(?:\.\d+)?)\s*[\)\]\}]')
+        bd_coord_fallback = re.compile(r'\b(2[0-7]\.\d{3,8})\s*[,;\s]\s*(8[89]\.\d{3,8}|9[0-3]\.\d{3,8})\b')
         chrono_df = combined_df.sort_values(by='_parsed_dt').reset_index(drop=True)
 
         for _, row in chrono_df.iterrows():
             loc_val = str(row[col_L]) if pd.notna(row[col_L]) else ''
-            match = coord_pattern.search(loc_val)
+            match = coord_pattern.search(loc_val) or bd_coord_fallback.search(loc_val)
             if not match:
                 for col_name in chrono_df.columns:
                     val_str = str(row[col_name]) if pd.notna(row[col_name]) else ''
-                    m = coord_pattern.search(val_str)
+                    m = coord_pattern.search(val_str) or bd_coord_fallback.search(val_str)
                     if m:
                         loc_val = val_str
                         match = m
@@ -363,7 +362,8 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     date_str = dt_val.strftime('%d %b %Y') if pd.notna(dt_val) else ''
                     time_str = dt_val.strftime('%H:%M:%S') if pd.notna(dt_val) else ''
 
-                    clean_addr = coord_pattern.sub('', loc_val).strip().rstrip(',').strip()
+                    clean_addr = coord_pattern.sub('', loc_val)
+                    clean_addr = bd_coord_fallback.sub('', clean_addr).strip().rstrip(',').strip()
                     if not clean_addr: clean_addr = loc_val
 
                     row_bp = str(row[col_D]).strip() if pd.notna(row[col_D]) and str(row[col_D]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''

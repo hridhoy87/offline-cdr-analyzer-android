@@ -98,21 +98,23 @@
         /* Bottom Floating Legend & Replay Hub */
         .legend-card {
             position: absolute;
-            bottom: 16px;
+            bottom: 14px;
             left: 12px;
             right: 12px;
             max-width: 480px;
             z-index: 1000;
-            background: rgba(15, 23, 42, 0.94);
+            background: rgba(15, 23, 42, 0.96);
             backdrop-filter: blur(14px);
-            border: 1px solid rgba(51, 65, 85, 0.75);
+            border: 1px solid rgba(51, 65, 85, 0.85);
             border-radius: 14px;
-            padding: 12px 14px;
-            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.6);
+            padding: 10px 12px;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.7);
             max-height: 48vh;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 6px;
+            pointer-events: auto;
+            touch-action: pan-y !important;
         }
 
         .legend-header {
@@ -121,6 +123,8 @@
             align-items: center;
             border-bottom: 1px solid rgba(51, 65, 85, 0.6);
             padding-bottom: 6px;
+            cursor: pointer;
+            user-select: none;
         }
 
         .legend-title {
@@ -134,13 +138,72 @@
             gap: 6px;
         }
 
+        .legend-header-right {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .legend-badge {
+            background: #0284c7;
+            color: #ffffff;
+            font-size: 10.5px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 10px;
+            border: 1px solid #38bdf8;
+        }
+
+        .btn-toggle-legend {
+            background: #1e293b;
+            color: #94a3b8;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            font-size: 11px;
+            padding: 2px 7px;
+            cursor: pointer;
+        }
+
         .legend-list {
-            overflow-y: auto;
+            overflow-y: scroll !important;
+            -webkit-overflow-scrolling: touch !important;
             max-height: 32vh;
+            flex: 1 1 auto;
+            min-height: 0 !important;
             display: flex;
             flex-direction: column;
-            gap: 7px;
-            padding-right: 2px;
+            gap: 6px;
+            padding-right: 4px;
+            touch-action: pan-y !important;
+            overscroll-behavior: contain;
+        }
+
+        /* Visible vibrant scrollbar for vertical scrollability */
+        .legend-list::-webkit-scrollbar {
+            width: 6px !important;
+            display: block !important;
+        }
+
+        .legend-list::-webkit-scrollbar-track {
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 4px;
+        }
+
+        .legend-list::-webkit-scrollbar-thumb {
+            background: #38bdf8;
+            border-radius: 4px;
+            border: 1px solid rgba(15, 23, 42, 0.8);
+        }
+
+        /* Collapsed State */
+        .legend-card.collapsed {
+            max-height: none !important;
+            padding: 8px 12px;
+        }
+
+        .legend-card.collapsed .legend-list,
+        .legend-card.collapsed .legend-footer {
+            display: none !important;
         }
 
         /* Party Row */
@@ -148,11 +211,12 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: rgba(30, 41, 59, 0.55);
-            border: 1px solid rgba(51, 65, 85, 0.5);
+            background: rgba(30, 41, 59, 0.6);
+            border: 1px solid rgba(51, 65, 85, 0.55);
             border-radius: 8px;
-            padding: 7px 10px;
+            padding: 6px 9px;
             transition: all 0.2s;
+            flex-shrink: 0 !important;
         }
 
         .party-row:hover {
@@ -166,10 +230,12 @@
             gap: 8px;
             cursor: pointer;
             flex: 1;
+            min-width: 0;
+            overflow: hidden;
         }
 
         .color-bar {
-            width: 24px;
+            width: 20px;
             height: 6px;
             border-radius: 3px;
             flex-shrink: 0;
@@ -391,14 +457,19 @@
     </div>
 
     <!-- Bottom Floating Legend & Replay Hub -->
+    <!-- Bottom Floating Legend & Replay Hub -->
     <div class="legend-card" id="legendCard">
-        <div class="legend-header">
-            <span class="legend-title">🗺️ CDR Trajectories & Replay</span>
+        <div class="legend-header" onclick="toggleLegendCollapse()">
+            <span class="legend-title">🗺️ CDR Trajectories</span>
+            <div class="legend-header-right">
+                <span class="legend-badge" id="legendBadge">0 Active</span>
+                <button class="btn-toggle-legend" id="btnToggleLegend" type="button" title="Minimize / Expand">▼</button>
+            </div>
         </div>
         <div class="legend-list" id="legendList">
             <!-- Dynamic rows populated per A-Party CDR -->
         </div>
-        <div class="legend-footer">
+        <div class="legend-footer" id="legendFooter">
             <div><span class="dot-indicator" style="background:#10b981;"></span>Start Ping</div>
             <div><span class="dot-indicator" style="background:#ef4444;"></span>Latest Ping</div>
         </div>
@@ -422,16 +493,32 @@
         let animationIndex = 0;
         let animationTimer = null;
 
-        // Distinct vibrant forensic color palette for A-parties
+        // Distinct vibrant forensic color palette for 24+ unique A-party CDRs
         const PARTY_PALETTE = [
             '#06b6d4', // Cyan
             '#f43f5e', // Rose
             '#10b981', // Emerald Green
             '#a855f7', // Purple
             '#f59e0b', // Amber / Orange
-            '#3b82f6', // Blue
+            '#3b82f6', // Bright Blue
             '#ec4899', // Pink
-            '#84cc16'  // Lime
+            '#84cc16', // Lime
+            '#14b8a6', // Teal
+            '#e11d48', // Crimson
+            '#8b5cf6', // Violet
+            '#d97706', // Ochre
+            '#0ea5e9', // Sky Blue
+            '#059669', // Mint Green
+            '#f97316', // Orange
+            '#6366f1', // Indigo
+            '#eab308', // Yellow
+            '#22c55e', // Green
+            '#d946ef', // Fuchsia
+            '#64748b', // Slate
+            '#2dd4bf', // Light Teal
+            '#fb7185', // Salmon
+            '#c084fc', // Lavender
+            '#facc15'  // Gold
         ];
 
         // Initialize Leaflet Map
@@ -451,6 +538,7 @@
             }).addTo(map);
 
             trailLayerGroup = L.layerGroup().addTo(map);
+            bindLegendTouchEvents();
         }
 
         // Primary Entrypoint called by Android WebView evaluateJavascript
@@ -607,12 +695,16 @@
         // Build Legend describing line colors and play/pause buttons
         function buildLegend() {
             const listEl = document.getElementById('legendList');
+            const badgeEl = document.getElementById('legendBadge');
             listEl.innerHTML = '';
+
+            let activeCount = 0;
 
             partyList.forEach(ap => {
                 const pts = partyPointsMap[ap] || [];
                 if (pts.length === 0) return;
 
+                activeCount++;
                 const color = partyColorMap[ap];
                 const row = document.createElement('div');
                 row.className = 'party-row';
@@ -623,6 +715,7 @@
                     <div class="party-info" onclick="focusParty('${ap}')" title="Zoom to ${ap}">
                         <div class="color-bar" style="background:${color}; box-shadow:0 0 6px ${color};"></div>
                         <span class="party-name">📱 ${ap}</span>
+                        <span style="font-size:10px; color:#94a3b8; font-weight:600; margin-left:3px;">(${pts.length}p)</span>
                     </div>
                     <div class="party-actions">
                         <button class="btn-party-play" id="btn-play-${safeAp}" onclick="togglePartyReplay('${ap}')">
@@ -634,6 +727,38 @@
                     </div>
                 `;
                 listEl.appendChild(row);
+            });
+
+            if (badgeEl) {
+                badgeEl.innerText = `${activeCount} Active`;
+            }
+
+            // Ensure touch propagation is cleanly decoupled from Leaflet map
+            bindLegendTouchEvents();
+        }
+
+        function toggleLegendCollapse() {
+            const card = document.getElementById('legendCard');
+            const btn = document.getElementById('btnToggleLegend');
+            if (!card) return;
+            card.classList.toggle('collapsed');
+            if (btn) {
+                btn.innerText = card.classList.contains('collapsed') ? '▲' : '▼';
+            }
+        }
+
+        function bindLegendTouchEvents() {
+            const legendCard = document.getElementById('legendCard');
+            const legendList = document.getElementById('legendList');
+            [legendCard, legendList].forEach(el => {
+                if (!el) return;
+                if (typeof L !== 'undefined' && L.DomEvent) {
+                    L.DomEvent.disableScrollPropagation(el);
+                    L.DomEvent.disableClickPropagation(el);
+                }
+                el.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+                el.addEventListener('touchmove', e => e.stopPropagation(), { passive: true });
+                el.addEventListener('wheel', e => e.stopPropagation(), { passive: true });
             });
         }
 
@@ -869,6 +994,7 @@
         // Auto-initialize map on load
         window.addEventListener('DOMContentLoaded', () => {
             initMap();
+            bindLegendTouchEvents();
         });
     </script>
 </body>

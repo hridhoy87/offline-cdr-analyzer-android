@@ -82,7 +82,7 @@ flowchart TB
 | `app/src/main/python/pdf_report_writer.py` | Python 3.12 | 171 lines | Builds print-ready forensic HTML with pagination, metadata tables, heatmap bars, link insights, handset indexes, and telemetry logs. |
 | `app/src/main/python/tac_db.csv` | CSV Dataset | 25,912 rows | Database mapping 8-digit TAC codes to phone manufacturer and model. |
 | `app/src/main/python/for_desktop/index.py` | Python 3.12 | 585 lines | Desktop counterpart engine with `calamine` engine support, loc_trail extraction, and OS user-cache path resolution. |
-| `app/src/main/assets/loc_trail.html` | HTML5 / Leaflet | 450 lines | Location movement trail on OpenStreetMap. Plots per-CDR colored lines and dots statically on load; animates progressive polyline drawing and auto-centers area on Play; responsive non-overshooting popup cards with Bp, Incident, LacID, Cell ID, and Google Maps navigation. |
+| `app/src/main/assets/loc_trail.html` | HTML5 / Leaflet | 520+ lines | Location movement trail on OpenStreetMap. Plots all CDR trails statically on load; features 24-color distinct palette; vertically scrollable touch-decoupled legend with active count badge and collapsible toggle; animates progressive polyline drawing and auto-centers area on Play; responsive non-overshooting popup cards with Bp, Incident, LacID, Cell ID, and Google Maps navigation. |
 | `app/src/main/assets/leaflet.js` | JavaScript | Vendor Lib | Leaflet mapping library for offline embedded map rendering. |
 | `app/src/main/assets/leaflet.css` | CSS | Vendor Lib | Leaflet map stylesheet. |
 | `app/src/main/assets/link_analysis.html` | HTML5 / JS | 242 lines | WebGL 3D Force-Directed Graph application using Three.js and 3d-force-graph.js. Exposes `window.renderOfflineData` and `window.renderSimImeiData`. |
@@ -168,9 +168,12 @@ flowchart TB
 * **Key Components:**
   - `webViewLocTrail` (`WebView`): Loads `file:///android_asset/loc_trail.html`.
   - Leaflet integration: Injects Base64 encoded `loc_trail.json` to execute `window.renderLocTrail(...)`.
+  - Multi-CDR Support: Distinct vibrant 24-color palette (`PARTY_PALETTE`) allowing 19+ concurrent suspect CDRs to each have unique color-coded polylines and markers.
+  - Vertically Scrollable Legend: Card container with `.legend-list` supporting smooth touch scrolling (`overflow-y: scroll`, `touch-action: pan-y`, `-webkit-overflow-scrolling: touch`) decoupled from Leaflet map touch drag via `L.DomEvent.disableScrollPropagation` and `disableClickPropagation`.
+  - Legend Header Controls: Interactive collapse/expand toggle (`▼ / ▲`) and active target counter badge (`X Active`).
   - Static Load & Area Focus: All routes and pings render statically on initial open; clicking [▶ Play] focuses and auto-centers the target party's bounds.
   - Progressive Drawing Animation: Progressively draws the polyline and moves a pulsing traveling marker with live tooltip; supports Pause / Resume / Finish.
-  - Constrained Forensic Popups: Non-overshooting cards displaying Date, Time, Lat/Lon, Bp (Party B), Incident (Usage Type), LacID, Cell ID, BTS address, and direct Google Maps navigation button.
+  - Constrained Forensic Popups: Non-overshooting cards (approx. 60-62vw) displaying Date, Time, Lat/Lon, Bp (Party B), Incident (Usage Type), LacID, Cell ID, BTS address, and direct Google Maps navigation button.
   - Google Maps Intent: Intercepts `google.com/maps` URLs to launch native navigation.
   - Inactivity Timeout: 30-minute auto-expiry security guard.
 
@@ -184,8 +187,8 @@ flowchart TB
   - Looks up in cached `TAC_DICT` loaded from `tac_db.csv`.
   - Returns `"{Manufacturer} {Model}"` or `None`.
 * **`process_cdr_data(file_paths, intended_location, output_dir, start_ts, end_ts)`**:
-  1. *Ingestion:* Reads `.xlsx` via `openpyxl` or `.pdf` via `pdf_converter.pdf_to_dataframe`.
-  2. *Standardization:* Assumes 12+ column structure. Sanitizes phone numbers (`col_C`, `col_D`) to 11-digit clean strings (`str.replace(r'^\+?88|\D', '')`).
+  1. *Ingestion:* Reads `.xlsx` via `openpyxl` with dynamic header row scanning (skipping banner/title rows 0..3) or `.pdf` via `pdf_converter.pdf_to_dataframe`.
+  2. *Standardization & Coordinate Parsing:* Assumes 12+ column structure. Restores stripped leading zeros (`17...` $\to$ `017...`) and standardizes phone numbers. Tolerantly extracts latitude and longitude from BTS tower addresses using bracketed patterns `(...)`, `[...]`, `{...}`, or plain Bangladesh coordinate fallback boundaries. Saves sorted chronological records to `.cache_engine/loc_trail.json` supporting 19+ concurrent CDR files.
   3. *Timeline Masking:* Filters by `_parsed_dt` if `start_ts` and `end_ts` provided.
   4. *Hardware Forensics:*
      - Detects **IMEI Swappers**: A-parties associated with $\ge 3$ distinct IMEIs.
@@ -386,8 +389,8 @@ sequenceDiagram
     LF->>OSM: Request map tiles (with offline grid fallback)
     WV-->>LTA: onPageFinished callback
     LTA->>WV: evaluateJavascript: window.renderLocTrail(Base64_JSON)
-    WV->>LF: Render distinct colored polylines & markers per A-Party CDR
-    WV->>WV: Build Legend describing each line color and A-party with per-party [▶ Play] replay buttons
+    WV->>LF: Render distinct colored polylines & markers per A-Party CDR (24-color vibrant palette)
+    WV->>WV: Build Scrollable Legend (touch-decoupled, collapse toggle, active counter) with per-party [▶ Play] replay buttons
     LTA->>LTA: Fade out loading overlay
     deactivate LTA
     User->>WV: Tap dot / ping
