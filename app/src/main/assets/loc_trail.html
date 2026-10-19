@@ -247,14 +247,30 @@
             margin-right: 3px;
         }
 
-        /* Leaflet Popup Styling */
+        /* Leaflet Popup Styling - Constrained to prevent overshooting screen */
+        .leaflet-popup {
+            max-width: calc(100vw - 32px) !important;
+        }
+
         .leaflet-popup-content-wrapper {
             background: rgba(15, 23, 42, 0.96) !important;
             color: #f8fafc !important;
             border: 1px solid #38bdf8 !important;
             border-radius: 10px !important;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6) !important;
-            padding: 4px;
+            padding: 2px !important;
+            max-width: calc(100vw - 32px) !important;
+            box-sizing: border-box !important;
+        }
+
+        .leaflet-popup-content {
+            margin: 8px 10px !important;
+            line-height: 1.4 !important;
+            max-width: calc(100vw - 56px) !important;
+            width: auto !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            box-sizing: border-box !important;
         }
 
         .leaflet-popup-tip {
@@ -263,36 +279,57 @@
         }
 
         .popup-card {
-            font-size: 11.5px;
-            line-height: 1.5;
-            min-width: 210px;
-            max-width: 280px;
+            font-size: 11px;
+            line-height: 1.45;
+            width: 100%;
+            max-width: 270px;
+            box-sizing: border-box;
+            word-break: break-word;
         }
 
         .popup-header {
             font-weight: 700;
             color: #38bdf8;
-            font-size: 12.5px;
+            font-size: 12px;
             border-bottom: 1px solid rgba(56, 189, 248, 0.3);
             padding-bottom: 4px;
             margin-bottom: 6px;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
 
         .popup-row {
-            margin-bottom: 4px;
+            margin-bottom: 3.5px;
+            display: flex;
+            align-items: baseline;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+
+        .popup-grid {
+            display: flex;
+            gap: 8px;
+            justify-content: space-between;
+            margin-bottom: 3.5px;
+        }
+
+        .popup-grid .popup-row {
+            margin-bottom: 0;
+            flex: 1;
         }
 
         .popup-label {
             color: #94a3b8;
             font-size: 10.5px;
             font-weight: 600;
+            white-space: nowrap;
         }
 
         .popup-val {
             color: #f1f5f9;
             font-weight: 500;
+            word-break: break-word;
         }
 
         .btn-gmaps {
@@ -317,18 +354,25 @@
 
         /* Tooltip styling */
         .leaflet-tooltip {
-            background: rgba(15, 23, 42, 0.92) !important;
+            background: rgba(15, 23, 42, 0.94) !important;
             color: #f8fafc !important;
             border: 1px solid #38bdf8 !important;
             font-size: 11px !important;
             font-weight: 600 !important;
             border-radius: 6px !important;
             padding: 4px 8px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5) !important;
+            max-width: calc(100vw - 40px) !important;
+            white-space: normal !important;
+            word-break: break-word !important;
         }
 
         .leaflet-tooltip::before {
-            border-top-color: rgba(15, 23, 42, 0.92) !important;
+            border-top-color: rgba(15, 23, 42, 0.94) !important;
+        }
+
+        .animated-tooltip {
+            pointer-events: none !important;
         }
     </style>
 </head>
@@ -365,6 +409,7 @@
         let map = null;
         let trailLayerGroup = null;
         let animatedMarker = null;
+        let partyAnimatedPolyline = null;
 
         let rawPoints = [];
         let partyList = [];
@@ -511,7 +556,7 @@
                         direction: 'top'
                     });
 
-                    // Detailed Popup on Click
+                    // Detailed Popup on Click with forensic metadata
                     const popupContent = `
                         <div class="popup-card">
                             <div class="popup-header">
@@ -525,20 +570,26 @@
                                 <span class="popup-label">🌐 Lat, Lon:</span> <span class="popup-val"><b>${lat}, ${lon}</b></span>
                             </div>
                             <div class="popup-row">
+                                <span class="popup-label">📞 Bp:</span> <span class="popup-val" style="color:#38bdf8; font-weight:700;">${pt.bp || '--'}</span>
+                            </div>
+                            ${pt.incident ? `
+                            <div class="popup-row">
+                                <span class="popup-label">⚡ Incident:</span> <span class="popup-val">${pt.incident}</span>
+                            </div>` : ''}
+                            ${(pt.lac || pt.cell) ? `
+                            <div class="popup-grid">
+                                <div class="popup-row"><span class="popup-label">📡 LacID:</span> <span class="popup-val">${pt.lac || '--'}</span></div>
+                                <div class="popup-row"><span class="popup-label">📶 Cell ID:</span> <span class="popup-val">${pt.cell || '--'}</span></div>
+                            </div>` : ''}
+                            <div class="popup-row">
                                 <span class="popup-label">🗼 BTS Tower:</span> <span class="popup-val">${pt.location || pt.raw_loc || 'Unknown Site'}</span>
-                            </div>
-                            <div class="popup-row">
-                                <span class="popup-label">📱 Target (Ap):</span> <span class="popup-val">${pt.ap || '--'}</span>
-                            </div>
-                            <div class="popup-row">
-                                <span class="popup-label">📞 Contact (Bp):</span> <span class="popup-val">${pt.bp || '--'}</span>
                             </div>
                             <a href="https://www.google.com/maps/search/?api=1&query=${lat},${lon}" class="btn-gmaps" target="_blank">
                                 🗺️ Navigate in Google Maps
                             </a>
                         </div>
                     `;
-                    marker.bindPopup(popupContent);
+                    marker.bindPopup(popupContent, { maxWidth: 280, minWidth: 200, autoPan: true, autoPanPadding: [20, 20] });
                     trailLayerGroup.addLayer(marker);
                 });
 
@@ -611,17 +662,16 @@
 
             if (activeReplayParty === ap && isPlaying) {
                 // Pause currently replaying party
-                stopCurrentAnimation();
-                if (btn) {
-                    btn.innerHTML = '▶ Play';
-                    btn.classList.remove('active');
-                }
+                pausePartyAnimation(ap);
+            } else if (activeReplayParty === ap && !isPlaying && animationIndex < (partyPointsMap[ap] || []).length) {
+                // Resume paused replay
+                resumePartyAnimation(ap);
             } else {
                 // Stop any other active replay
                 stopCurrentAnimation();
                 resetAllPlayButtons();
 
-                // Start animation for this party
+                // Start fresh animation for this party
                 activeReplayParty = ap;
                 isPlaying = true;
                 animationIndex = 0;
@@ -633,6 +683,29 @@
 
                 startPartyAnimation(ap);
             }
+        }
+
+        function pausePartyAnimation(ap) {
+            isPlaying = false;
+            if (animationTimer) {
+                clearTimeout(animationTimer);
+                animationTimer = null;
+            }
+            const btn = document.getElementById(`btn-play-${encodeURIComponent(ap)}`);
+            if (btn) {
+                btn.innerHTML = '▶ Resume';
+                btn.classList.remove('active');
+            }
+        }
+
+        function resumePartyAnimation(ap) {
+            isPlaying = true;
+            const btn = document.getElementById(`btn-play-${encodeURIComponent(ap)}`);
+            if (btn) {
+                btn.innerHTML = '⏸ Pause';
+                btn.classList.add('active');
+            }
+            stepPartyAnimation(ap);
         }
 
         function resetAllPlayButtons() {
@@ -651,44 +724,121 @@
 
             const color = partyColorMap[ap] || '#f59e0b';
 
-            if (!animatedMarker) {
-                animatedMarker = L.circleMarker([pts[0].lat, pts[0].lon], {
-                    radius: 11,
-                    fillColor: color,
-                    color: '#ffffff',
-                    weight: 3,
-                    fillOpacity: 1
-                }).addTo(map);
-            } else {
-                animatedMarker.setStyle({ fillColor: color });
-                animatedMarker.setLatLng([pts[0].lat, pts[0].lon]);
+            // 1. Focus the area immediately when Play is clicked
+            focusParty(ap);
+
+            // 2. Dim static line to faint dashed guideline
+            if (partyPolylines[ap]) {
+                partyPolylines[ap].setStyle({ opacity: 0.22, dashArray: '4, 8' });
             }
+
+            // 3. Prepare clean progressive animated line
+            if (partyAnimatedPolyline) {
+                map.removeLayer(partyAnimatedPolyline);
+            }
+            partyAnimatedPolyline = L.polyline([], {
+                color: color,
+                weight: 5,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round'
+            }).addTo(map);
+
+            // 4. Create or position animated moving marker
+            if (animatedMarker) {
+                map.removeLayer(animatedMarker);
+            }
+            const firstPt = pts[0];
+            animatedMarker = L.circleMarker([firstPt.lat, firstPt.lon], {
+                radius: 10,
+                fillColor: color,
+                color: '#ffffff',
+                weight: 3,
+                fillOpacity: 1
+            }).addTo(map);
 
             stepPartyAnimation(ap);
         }
 
         function stepPartyAnimation(ap) {
             const pts = partyPointsMap[ap];
-            if (!isPlaying || activeReplayParty !== ap || !pts || animationIndex >= pts.length) {
-                stopCurrentAnimation();
-                resetAllPlayButtons();
+            if (!isPlaying || activeReplayParty !== ap || !pts) return;
+
+            if (animationIndex >= pts.length) {
+                finishPartyAnimation(ap);
                 return;
             }
 
             const pt = pts[animationIndex];
             const latlng = [pt.lat, pt.lon];
-            animatedMarker.setLatLng(latlng);
-            animatedMarker.bindTooltip(`📍 <b>${ap}</b> #${animationIndex + 1}: ${pt.time || ''}<br/>${pt.location || ''}`, {
-                permanent: true,
-                direction: 'top'
-            }).openTooltip();
+            const color = partyColorMap[ap] || '#f59e0b';
 
-            if (!map.getBounds().contains(latlng)) {
-                map.panTo(latlng, { animate: true, duration: 0.5 });
+            // Progressively extend the drawing polyline
+            if (partyAnimatedPolyline) {
+                partyAnimatedPolyline.addLatLng(latlng);
+            }
+
+            // Move animated marker & update live tooltip
+            if (animatedMarker) {
+                animatedMarker.setLatLng(latlng);
+                const tooltipHtml = `
+                    <div style="font-weight:700; color:${color}; font-size:11px;">📍 ${ap} [${animationIndex + 1}/${pts.length}]</div>
+                    <div style="font-size:10px; color:#f8fafc;">⏰ ${pt.time || pt.datetime || ''}</div>
+                    ${pt.bp ? `<div style="font-size:9.5px; color:#38bdf8;">📞 Bp: ${pt.bp}</div>` : ''}
+                    ${pt.incident ? `<div style="font-size:9px; color:#fbbf24;">⚡ ${pt.incident}</div>` : ''}
+                `;
+                animatedMarker.bindTooltip(tooltipHtml, {
+                    permanent: true,
+                    direction: 'top',
+                    offset: [0, -10],
+                    className: 'animated-tooltip'
+                }).openTooltip();
+            }
+
+            // Smooth pan if traveling outside visible screen
+            if (!map.getBounds().pad(-0.08).contains(latlng)) {
+                map.panTo(latlng, { animate: true, duration: 0.35 });
             }
 
             animationIndex++;
-            animationTimer = setTimeout(() => stepPartyAnimation(ap), 900);
+            // Dynamically pace speed based on route length
+            const speed = pts.length > 50 ? 250 : (pts.length > 20 ? 400 : 600);
+            animationTimer = setTimeout(() => stepPartyAnimation(ap), speed);
+        }
+
+        function finishPartyAnimation(ap) {
+            isPlaying = false;
+            if (animationTimer) {
+                clearTimeout(animationTimer);
+                animationTimer = null;
+            }
+
+            // Restore static line to full vibrant opacity
+            if (partyPolylines[ap]) {
+                partyPolylines[ap].setStyle({ opacity: 0.88, dashArray: null });
+            }
+            if (partyAnimatedPolyline) {
+                map.removeLayer(partyAnimatedPolyline);
+                partyAnimatedPolyline = null;
+            }
+
+            const safeAp = encodeURIComponent(ap);
+            const btn = document.getElementById(`btn-play-${safeAp}`);
+            if (btn) {
+                btn.innerHTML = '▶ Play';
+                btn.classList.remove('active');
+            }
+
+            if (animatedMarker) {
+                const pts = partyPointsMap[ap];
+                animatedMarker.bindTooltip(`📍 <b>${ap}</b>: Complete (${pts.length} pings)`, {
+                    permanent: false,
+                    direction: 'top'
+                });
+            }
+
+            activeReplayParty = null;
+            animationIndex = 0;
         }
 
         function stopCurrentAnimation() {
@@ -697,11 +847,24 @@
                 clearTimeout(animationTimer);
                 animationTimer = null;
             }
+
+            if (activeReplayParty && partyPolylines[activeReplayParty]) {
+                partyPolylines[activeReplayParty].setStyle({ opacity: 0.88, dashArray: null });
+            }
+
+            if (partyAnimatedPolyline) {
+                map.removeLayer(partyAnimatedPolyline);
+                partyAnimatedPolyline = null;
+            }
+
             if (animatedMarker) {
                 animatedMarker.closeTooltip();
                 map.removeLayer(animatedMarker);
                 animatedMarker = null;
             }
+
+            activeReplayParty = null;
+            animationIndex = 0;
         }
 
         // Auto-initialize map on load

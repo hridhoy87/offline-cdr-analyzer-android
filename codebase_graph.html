@@ -684,9 +684,9 @@ flowchart TB
                             <span class="component-title">loc_trail.html</span>
                             <span class="component-type">HTML5 / Leaflet</span>
                         </div>
-                        <p class="component-desc">Dark tactical OpenStreetMap mapping engine using bundled offline Leaflet.js. Plots distinct per-CDR/A-party colored route lines, informative legend with individual [▶ Play] replay buttons, and forensic detail tooltips.</p>
+                        <p class="component-desc">Dark tactical OpenStreetMap mapping engine using bundled offline Leaflet.js. Plots static per-CDR colored route lines on load, animates progressive polyline drawing and auto-centers area on Play, and renders constrained non-overshooting popup cards with Bp, Incident, LacID, and Cell ID.</p>
                         <div class="component-meta">
-                            <span>Lines: 520</span>
+                            <span>Lines: 520+</span>
                             <span>Leaflet 1.9.4 Offline</span>
                         </div>
                     </div>
@@ -987,9 +987,9 @@ sequenceDiagram
     LTA->>LTA: Fade out loading overlay
     deactivate LTA
     User->>WV: Tap dot / ping
-    WV->>User: Display Tooltip with Date, Time, Lat/Lon, Tower, Navigate on Google Maps
+    WV->>User: Display Constrained Popup with Date, Time, Lat/Lon, Bp, Incident, LacID, Cell ID, BTS Tower, and Google Maps Nav
     User->>WV: Tap [▶ Play] in legend for a specific A-party
-    WV->>WV: Sequentially animate marker through that A-party's movement trajectory
+    WV->>LF: Smoothly focus party bounds, dim background guide, and progressively draw polyline segment-by-segment with traveling marker
                         </pre>
                     </div>
                 </div>
@@ -1369,12 +1369,13 @@ sequenceDiagram
             },
             'loc-trail-html': {
                 title: 'loc_trail.html',
-                type: 'HTML5 / Leaflet (360 lines)',
+                type: 'HTML5 / Leaflet (520+ lines)',
                 desc: 'Self-contained offline Leaflet mapping application using local leaflet.js and leaflet.css assets. Renders dark tactical OpenStreetMap tiles, distinct per-CDR/A-party colored lines and markers, an interactive color-coded legend with individual [▶ Play] replay buttons, and rich forensic tooltips.',
                 methods: [
-                    'window.renderLocTrail(base64Payload): Decodes JSON payload, extracts distinct A-parties, renders colored polylines and dots per CDR.',
+                    'window.renderLocTrail(base64Payload): Decodes JSON payload, extracts distinct A-parties, renders static colored polylines and dots per CDR on initial load.',
                     'buildLegend(): Constructs dynamic legend describing each A-party with its colored line swatch and dedicated Play/Pause replay button.',
-                    'togglePartyReplay(ap) / stepPartyAnimation(ap): Iteratively animates a glowing marker along the chronological trajectory of that specific A-party.'
+                    'togglePartyReplay(ap) / startPartyAnimation(ap): Focuses area, dims static line, and progressively draws animated polyline with traveling marker and live tooltip.',
+                    'marker.bindPopup(): Displays responsive constrained popup card with Bp, Incident, LacID, Cell ID, BTS address, and Google Maps button without overshooting screen.'
                 ],
                 inputs: 'Base64 encoded JSON array of geographic coordinate objects.',
                 outputs: 'Interactive Leaflet vector layer with per-party colored polylines, start/end markers, and legend controls.'

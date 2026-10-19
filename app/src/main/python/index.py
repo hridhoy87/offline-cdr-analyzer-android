@@ -121,10 +121,10 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
             return {"status": "error", "message": "No readable data detected."}
         
         combined_df = pd.concat(all_dfs, ignore_index=True)
-        col_A, col_C, col_D, col_E, col_H, col_I, col_J, col_L = (
+        col_A, col_C, col_D, col_E, col_F, col_G, col_H, col_I, col_J, col_L = (
             combined_df.columns[0], combined_df.columns[2], combined_df.columns[3],
-            combined_df.columns[4], combined_df.columns[7], combined_df.columns[8],
-            combined_df.columns[9], combined_df.columns[11]
+            combined_df.columns[4], combined_df.columns[5], combined_df.columns[6],
+            combined_df.columns[7], combined_df.columns[8], combined_df.columns[9], combined_df.columns[11]
         )
 
         # 1. Vectorized Sanitization
@@ -337,6 +337,12 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     if not clean_addr:
                         clean_addr = loc_val
 
+                    row_bp = str(row[col_D]).strip() if pd.notna(row[col_D]) and str(row[col_D]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_incident = str(row[col_F]).strip() if pd.notna(row[col_F]) and str(row[col_F]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_call_type = str(row[col_G]).strip() if pd.notna(row[col_G]) and str(row[col_G]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_lac = str(row[col_H]).split('.')[0].strip() if str(row[col_H]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_cell = str(row[col_I]).split('.')[0].strip() if str(row[col_I]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+
                     loc_trail_list.append({
                         "id": len(loc_trail_list) + 1,
                         "lat": round(lat, 6),
@@ -345,7 +351,11 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                         "date": date_str,
                         "time": time_str,
                         "ap": str(row[col_C]),
-                        "bp": str(row[col_D]),
+                        "bp": row_bp,
+                        "incident": row_incident,
+                        "call_type": row_call_type,
+                        "lac": row_lac,
+                        "cell": row_cell,
                         "location": clean_addr,
                         "raw_loc": loc_val
                     })

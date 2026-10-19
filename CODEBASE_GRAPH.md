@@ -82,7 +82,7 @@ flowchart TB
 | `app/src/main/python/pdf_report_writer.py` | Python 3.12 | 171 lines | Builds print-ready forensic HTML with pagination, metadata tables, heatmap bars, link insights, handset indexes, and telemetry logs. |
 | `app/src/main/python/tac_db.csv` | CSV Dataset | 25,912 rows | Database mapping 8-digit TAC codes to phone manufacturer and model. |
 | `app/src/main/python/for_desktop/index.py` | Python 3.12 | 585 lines | Desktop counterpart engine with `calamine` engine support, loc_trail extraction, and OS user-cache path resolution. |
-| `app/src/main/assets/loc_trail.html` | HTML5 / Leaflet | 430 lines | Location movement trail web application on OpenStreetMap. Plots per-CDR/A-party colored lines and dots, informative legend with individual [▶ Play] / [⏸ Pause] replay controls, and rich tooltips. |
+| `app/src/main/assets/loc_trail.html` | HTML5 / Leaflet | 450 lines | Location movement trail on OpenStreetMap. Plots per-CDR colored lines and dots statically on load; animates progressive polyline drawing and auto-centers area on Play; responsive non-overshooting popup cards with Bp, Incident, LacID, Cell ID, and Google Maps navigation. |
 | `app/src/main/assets/leaflet.js` | JavaScript | Vendor Lib | Leaflet mapping library for offline embedded map rendering. |
 | `app/src/main/assets/leaflet.css` | CSS | Vendor Lib | Leaflet map stylesheet. |
 | `app/src/main/assets/link_analysis.html` | HTML5 / JS | 242 lines | WebGL 3D Force-Directed Graph application using Three.js and 3d-force-graph.js. Exposes `window.renderOfflineData` and `window.renderSimImeiData`. |
@@ -168,8 +168,9 @@ flowchart TB
 * **Key Components:**
   - `webViewLocTrail` (`WebView`): Loads `file:///android_asset/loc_trail.html`.
   - Leaflet integration: Injects Base64 encoded `loc_trail.json` to execute `window.renderLocTrail(...)`.
-  - Tooltips & Popups: Clicking any dot displays exact date, time, lat/lon, BTS address, and direct Google Maps navigation button.
-  - Movement Replay: Embedded sequential animation controls (Play / Pause / Replay) to simulate suspect travel path.
+  - Static Load & Area Focus: All routes and pings render statically on initial open; clicking [▶ Play] focuses and auto-centers the target party's bounds.
+  - Progressive Drawing Animation: Progressively draws the polyline and moves a pulsing traveling marker with live tooltip; supports Pause / Resume / Finish.
+  - Constrained Forensic Popups: Non-overshooting cards displaying Date, Time, Lat/Lon, Bp (Party B), Incident (Usage Type), LacID, Cell ID, BTS address, and direct Google Maps navigation button.
   - Google Maps Intent: Intercepts `google.com/maps` URLs to launch native navigation.
   - Inactivity Timeout: 30-minute auto-expiry security guard.
 
@@ -390,9 +391,9 @@ sequenceDiagram
     LTA->>LTA: Fade out loading overlay
     deactivate LTA
     User->>WV: Tap dot / ping
-    WV->>User: Display Tooltip with Date, Time, Lat/Lon, Tower, Navigate on Google Maps
+    WV->>User: Display Constrained Popup with Date, Time, Lat/Lon, Bp, Incident, LacID, Cell ID, BTS Tower, and Google Maps Nav
     User->>WV: Tap [▶ Play] in legend for a specific A-party
-    WV->>WV: Sequentially animate marker through that A-party's movement trajectory
+    WV->>LF: Smoothly focus party bounds, dim background guide, and progressively draw polyline segment-by-segment with traveling marker
 ```
 
 ---
@@ -511,6 +512,10 @@ sequenceDiagram
       "time": "09:15:22",
       "ap": "01711000000",
       "bp": "01911000000",
+      "incident": "Incoming Call",
+      "call_type": "Voice",
+      "lac": "1234",
+      "cell": "5678",
       "location": "107/3, North Mugdha Para, Sabujbagh, Dhaka",
       "raw_loc": "107/3, North Mugdha Para, Sabujbagh, Dhaka (23.72918, 90.43132)"
     }

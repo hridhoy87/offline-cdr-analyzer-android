@@ -366,6 +366,12 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                     clean_addr = coord_pattern.sub('', loc_val).strip().rstrip(',').strip()
                     if not clean_addr: clean_addr = loc_val
 
+                    row_bp = str(row[col_D]).strip() if pd.notna(row[col_D]) and str(row[col_D]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_incident = str(row[col_F]).strip() if pd.notna(row[col_F]) and str(row[col_F]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_call_type = str(row[col_G]).strip() if pd.notna(row[col_G]) and str(row[col_G]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_lac = str(row[col_H]).split('.')[0].strip() if str(row[col_H]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+                    row_cell = str(row[col_I]).split('.')[0].strip() if str(row[col_I]).strip() not in ['--Empty--', 'nan', 'NaN', 'None', ''] else ''
+
                     loc_trail_list.append({
                         "id": len(loc_trail_list) + 1,
                         "lat": round(lat, 6),
@@ -374,7 +380,11 @@ def process_cdr_data(file_paths, intended_location, output_dir, start_ts=None, e
                         "date": date_str,
                         "time": time_str,
                         "ap": str(row[col_C]),
-                        "bp": str(row[col_D]),
+                        "bp": row_bp,
+                        "incident": row_incident,
+                        "call_type": row_call_type,
+                        "lac": row_lac,
+                        "cell": row_cell,
                         "location": clean_addr,
                         "raw_loc": loc_val
                     })
